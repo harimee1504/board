@@ -10,7 +10,7 @@
   </nav>
 
   <!-- Filters -->
-  <div class="grid grid-cols-1 md:grid-cols-7 gap-4 mb-6">
+  <div class="grid md:grid-cols-7 gap-4 mb-6">
     <Input 
       v-model="filters.text"
       placeholder="Search by text..."
@@ -82,31 +82,43 @@
     <div v-else-if="filteredWorkItems.length === 0" class="text-center py-8 text-gray-500">
       No work items available. Create a work item to get started.
     </div>
-    <Card v-else v-for="item in filteredWorkItems" :key="item.uid" class="p-4">
+    <Card v-else v-for="item in filteredWorkItems" :key="item.u_id" class="p-4 cursor-pointer hover:bg-gray-50" @click="openWorkItemPopup(item)">
       <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-4">
-            <span>{{ item.uid }}</span>
+            <a 
+              :href="`${baseUrl}?workitem_id=${item.u_id}`"
+              target="_blank"
+              class="text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-2 py-1 rounded-md"
+              @click.stop
+            >
+              #{{ item.u_id }}
+            </a>
             <span>{{ item.title }}</span>
           </div>
           <div class="flex items-center gap-4">
-            <Badge>{{ item.type }}</Badge>
+            <Badge>{{ WorkItemTypeDisplay[item.type] || item.type }}</Badge>
+            <div @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                  <Button variant="ghost" size="icon" @click.stop>
                   <MoreVerticalIcon class="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem @click="editWorkItem(item)">
+                <DropdownMenuContent @click.stop>
+                  <DropdownMenuItem @click.stop="editWorkItem(item)">
                   Edit
                 </DropdownMenuItem>
-                <DropdownMenuItem @click="deleteWorkItem(item)">
+                  <DropdownMenuItem @click.stop="deleteWorkItem(item.id)">
                   Delete
                 </DropdownMenuItem>
+                  <DropdownMenuItem @click.stop="copyWorkItemLink(item)">
+                    Copy Link
+                  </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+        </div>
         </div>
         <div v-if="item.tags && item.tags.length > 0" class="flex gap-2">
           <Badge v-for="tag in item.tags" :key="tag" variant="outline">{{ tag }}</Badge>
@@ -169,6 +181,9 @@
               >
                 {{ user.firstName }} {{ user.lastName }}
               </SelectItem>
+              <div v-if="users.length === 0" class="p-2 text-sm text-gray-500 text-center">
+                No data available
+              </div>
             </SelectContent>
           </Select>
           <span v-if="formErrors.assigned_to" class="text-sm text-red-500">{{ formErrors.assigned_to }}</span>
@@ -200,6 +215,9 @@
               <SelectItem v-for="tag in availableTags" :key="tag.id" :value="tag.id">
                 {{ tag.tag }}
               </SelectItem>
+              <div v-if="availableTags.length === 0" class="p-2 text-sm text-gray-500 text-center">
+                No data available
+              </div>
             </SelectContent>
           </Select>
         </div>
@@ -213,11 +231,14 @@
             <SelectContent>
               <SelectItem 
                 v-for="item in availableParents" 
-                :key="item.uid" 
+                :key="item.u_id" 
                 :value="item.id"
               >
-                {{ item.title }} ({{ item.uid }})
+                {{ item.title }} ({{ item.u_id }})
               </SelectItem>
+              <div v-if="availableParents.length === 0" class="p-2 text-sm text-gray-500 text-center">
+                No data available
+              </div>
             </SelectContent>
           </Select>
           <span v-if="formErrors.parent_uid" class="text-sm text-red-500">{{ formErrors.parent_uid }}</span>
@@ -246,6 +267,12 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Add WorkItemPopup component -->
+  <WorkItemPopup
+    v-model:isOpen="isWorkItemPopupOpen"
+    :work-item="selectedWorkItem"
+  />
 </div>
 </template>
 
@@ -284,6 +311,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { PlusIcon, MoreVerticalIcon, Loader2Icon } from 'lucide-vue-next'
 import { useAuth } from 'vue-clerk'
+import WorkItemPopup from '@/components/WorkItemPopup.vue'
+import { WorkItemTypeDisplay, StateDisplay, PriorityDisplay } from '@/typings/enums'
 
 type WorkItemType = 'initiative' | 'epic' | 'feature' | 'user_story' | 'task' | 'bug'
 type Priority = 'p1' | 'p2' | 'p3' | 'p4' | 'p5' | ''
@@ -298,15 +327,25 @@ interface AssignedTo {
 
 interface WorkItem {
   id: string
-  uid: string
+  u_id: string
   title: string
   description?: string
   assigned_to: AssignedTo
   type: WorkItemType
-  parent_uid?: string
+  parent_uid?: any
   priority?: Priority
   tags?: string[]
   original_estimate?: number
+  createdBy?: AssignedTo
+  updatedBy?: AssignedTo
+  createdAt?: string
+  updatedAt?: string
+  story_points?: number
+  remaining_estimate?: number
+  completed_estimate?: number
+  acceptance_criteria?: string
+  definition_of_done?: string
+  state?: string
 }
 
 interface Tag {
@@ -355,7 +394,7 @@ watch(workItemsResult, (newResult) => {
   if (newResult?.getWorkItems) {
     workItems.value = newResult.getWorkItems.map(item => ({
       id: item.id,
-      uid: item.u_id,
+      u_id: item.u_id,
       title: item.title,
       description: item.description,
       assigned_to: item.assignedTo,
@@ -363,7 +402,17 @@ watch(workItemsResult, (newResult) => {
       parent_uid: item.parent,
       priority: item.priority as Priority,
       tags: item.tags,
-      original_estimate: item.original_estimate
+      original_estimate: item.original_estimate,
+      createdBy: item.createdBy,
+      updatedBy: item.updatedBy,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      story_points: item.story_points,
+      remaining_estimate: item.remaining_estimate,
+      completed_estimate: item.completed_estimate,
+      acceptance_criteria: item.acceptance_criteria,
+      definition_of_done: item.definition_of_done,
+      state: item.state
     }))
   }
 })
@@ -407,14 +456,14 @@ const availableParents = computed(() => {
   const type = newWorkItem.value.type
   switch (type) {
     case 'epic':
-      return workItems.value.filter(item => item.type === 'initiative')
+      return workItems.value.filter(item => item.type === 'initiative' && item.state === 'active')
     case 'feature':
-      return workItems.value.filter(item => item.type === 'epic')
+      return workItems.value.filter(item => item.type === 'epic' && item.state === 'active')
     case 'user_story':
-      return workItems.value.filter(item => item.type === 'feature')
+      return workItems.value.filter(item => item.type === 'feature' && item.state === 'active')
     case 'task':
     case 'bug':
-      return workItems.value.filter(item => item.type === 'user_story')
+      return workItems.value.filter(item => item.type === 'user_story' && item.state === 'active')
     default:
       return []
   }
@@ -424,7 +473,7 @@ const filteredWorkItems = computed(() => {
   return workItems.value.filter(item => {
     const textMatch = item.title.toLowerCase().includes(filters.value.text.toLowerCase()) ||
                      (item.description?.toLowerCase().includes(filters.value.text.toLowerCase()) ?? false)
-    const uidMatch = item.uid.toLowerCase().includes(filters.value.uid.toLowerCase())
+    const uidMatch = item.u_id.toLowerCase().includes(filters.value.uid.toLowerCase())
     const typeMatch = !filters.value.type || item.type === filters.value.type
     const priorityMatch = !filters.value.priority || item.priority === filters.value.priority
     const assignedToMatch = !filters.value.assigned_to || item.assigned_to.email === filters.value.assigned_to
@@ -447,6 +496,7 @@ const resetFilters = () => {
   toast({
     title: "Filters Reset",
     description: "All filters have been cleared",
+    duration: 3000
   })
 }
 
@@ -484,12 +534,14 @@ const closeDialog = () => {
   }
 }
 
-const deleteWorkItem = async (item: WorkItem) => {
+const deleteWorkItem = async (id: string) => {
   try {
-    loading.value = true
-    const { data } = await deleteWorkItemMutation({
+    await deleteWorkItemMutation({
+      variables: {
+        org_id: currentOrgId.value,
       input: {
-        id: item.id
+          id
+      }
       }
     })
 
@@ -499,19 +551,19 @@ const deleteWorkItem = async (item: WorkItem) => {
         workItems.value.splice(index, 1)
       }
       toast({
-        title: "Work Item Deleted",
-        description: `Successfully deleted work item ${item.uid}`,
+      title: "Success",
+      description: "Work item deleted successfully",
+      duration: 3000
       })
-    }
+    // Refresh the work items list
+    workItemsResult.value = null
   } catch (error) {
-    console.error('Failed to delete work item:', error)
+    console.error("Error deleting work item:", error)
     toast({
       title: "Error",
       description: "Failed to delete work item",
-      variant: "destructive",
+      duration: 3000
     })
-  } finally {
-    loading.value = false
   }
 }
 
@@ -540,7 +592,8 @@ const validateForm = () => {
     isValid = false
   }
 
-  if (needsParent.value && !newWorkItem.value.parent_uid) {
+  if (needsParent.value && (!newWorkItem.value.parent_uid || newWorkItem.value.parent_uid === '' || 
+      (typeof newWorkItem.value.parent_uid === 'object' && Object.keys(newWorkItem.value.parent_uid).length === 0))) {
     const requiredParentType = (() => {
       switch (newWorkItem.value.type) {
         case 'epic': return 'Initiative'
@@ -570,16 +623,18 @@ const saveWorkItem = async () => {
     toast({
       title: "Validation Error",
       description: "Please fill in all required fields",
-      variant: "destructive",
+      duration: 3000
     })
     return
   }
 
   try {
-    saving.value = true
+    loading.value = true
     
     if (isEditMode.value) {
       const { data } = await updateWorkItem({
+        variables: {
+          org_id: currentOrgId.value,
         input: {
           id: newWorkItem.value.id,
           title: newWorkItem.value.title,
@@ -590,6 +645,7 @@ const saveWorkItem = async () => {
           parent: newWorkItem.value.parent_uid,
           tags: newWorkItem.value.tags,
           original_estimate: newWorkItem.value.original_estimate
+          }
         }
       })
 
@@ -612,10 +668,13 @@ const saveWorkItem = async () => {
         toast({
           title: "Success",
           description: "Work item updated successfully",
+          duration: 3000
         })
       }
     } else {
       const { data } = await createWorkItem({
+        variables: {
+          org_id: currentOrgId.value,
         input: {
           title: newWorkItem.value.title,
           description: newWorkItem.value.description,
@@ -625,13 +684,14 @@ const saveWorkItem = async () => {
           parent: newWorkItem.value.parent_uid,
           tags: newWorkItem.value.tags,
           original_estimate: newWorkItem.value.original_estimate
+          }
         }
       })
 
       if (data?.createWorkItem) {
         workItems.value.push({
           id: data.createWorkItem.id,
-          uid: data.createWorkItem.u_id,
+          u_id: data.createWorkItem.u_id,
           title: data.createWorkItem.title,
           description: data.createWorkItem.description,
           assigned_to: data.createWorkItem.assignedTo,
@@ -639,12 +699,23 @@ const saveWorkItem = async () => {
           parent_uid: data.createWorkItem.parent,
           priority: data.createWorkItem.priority as Priority,
           tags: data.createWorkItem.tags,
-          original_estimate: data.createWorkItem.original_estimate
+          original_estimate: data.createWorkItem.original_estimate,
+          createdBy: data.createWorkItem.createdBy,
+          updatedBy: data.createWorkItem.updatedBy,
+          createdAt: data.createWorkItem.createdAt,
+          updatedAt: data.createWorkItem.updatedAt,
+          story_points: data.createWorkItem.story_points,
+          remaining_estimate: data.createWorkItem.remaining_estimate,
+          completed_estimate: data.createWorkItem.completed_estimate,
+          acceptance_criteria: data.createWorkItem.acceptance_criteria,
+          definition_of_done: data.createWorkItem.definition_of_done,
+          state: data.createWorkItem.state
         })
 
         toast({
           title: "Success",
           description: "Work item created successfully",
+          duration: 3000
         })
       }
     }
@@ -656,9 +727,10 @@ const saveWorkItem = async () => {
       title: "Error",
       description: `Failed to ${isEditMode.value ? 'update' : 'create'} work item`,
       variant: "destructive",
+      duration: 3000
     })
   } finally {
-    saving.value = false
+    loading.value = false
   }
 }
 
@@ -676,10 +748,71 @@ onMounted(async () => {
       title: "Error",
       description: "Failed to initialize application",
       variant: "destructive",
+      duration: 3000
     })
   } finally {
     loading.value = false
   }
 })
+
+// Add these refs
+const isWorkItemPopupOpen = ref(false)
+const selectedWorkItem = ref(null)
+
+// Add this function
+const openWorkItemPopup = (item) => {
+  // Log the complete work item data
+  console.log('Work item data from server:', item)
+  
+  // Make sure we're passing the complete work item with all fields
+  selectedWorkItem.value = {
+    ...item,
+    // Ensure these fields are properly passed
+    assignedTo: item.assignedTo || item.assigned_to,
+    createdBy: item.createdBy,
+    updatedBy: item.updatedBy,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    // Ensure other fields are properly mapped
+    story_points: item.story_points,
+    original_estimate: item.original_estimate,
+    remaining_estimate: item.remaining_estimate,
+    completed_estimate: item.completed_estimate,
+    acceptance_criteria: item.acceptance_criteria,
+    definition_of_done: item.definition_of_done,
+    // Fix the parent property structure
+    parent: item.parent_uid || null,
+    tags: item.tags || []
+  }
+  isWorkItemPopupOpen.value = true
+}
+
+// Add computed property for base URL
+const baseUrl = computed(() => {
+  if (typeof window !== 'undefined') {
+    return window.location.origin
+  }
+  return ''
+})
+
+const copyWorkItemLink = async (item: WorkItem) => {
+  try {
+    const link = `${baseUrl.value}?workitem_id=${item.u_id}`
+    await navigator.clipboard.writeText(link)
+    toast({
+      title: "Link Copied",
+      description: "Work item link has been copied to clipboard",
+      duration: 3000
+    })
+  } catch (error) {
+    console.error('Failed to copy link:', error)
+    toast({
+      title: "Error",
+      description: "Failed to copy link to clipboard",
+      variant: "destructive",
+      duration: 3000
+    })
+  }
+}
 
 </script>
