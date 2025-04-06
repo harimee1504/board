@@ -64,7 +64,7 @@ export default defineConfig({
       },
       shared: ['react', 'react-dom'],
     }),
-    injectRemoteStylesheet()
+    // injectRemoteStylesheet()
   ],
   build: {
     modulePreload: false,

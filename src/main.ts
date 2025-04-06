@@ -1,4 +1,4 @@
-import "./assets/index.css";
+// import "./assets/index.css";
 import { createApp } from "vue";
 import { createWebHistory, createRouter } from "vue-router";
 import { DefaultApolloClient } from '@vue/apollo-composable';
