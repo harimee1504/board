@@ -88,3 +88,25 @@ export const UPDATE_WORK_ITEM = gql`
     }
   }
 `;
+
+export const UPDATE_WORK_ITEM_STATE = gql`
+  mutation UpdateWorkItemState($input: WorkItemStateUpdate!) {
+    updateWorkItemState(input: $input) {
+      id
+      u_id
+      state
+      updatedAt
+      updatedBy {
+        id
+        firstName
+        lastName
+        email
+        imageUrl
+      }
+      tags {
+        id
+        tag
+      }
+    }
+  }
+`;

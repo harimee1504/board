@@ -121,7 +121,7 @@
         </div>
         </div>
         <div v-if="item.tags && item.tags.length > 0" class="flex gap-2">
-          <Badge v-for="tag in item.tags" :key="tag" variant="outline">{{ tag }}</Badge>
+          <Badge v-for="tag in item.tags" :key="tag" variant="outline">{{ tag.tag }}</Badge>
         </div>
       </div>
     </Card>
@@ -207,13 +207,33 @@
 
         <div class="space-y-2">
           <Label for="tags">Tags (Optional)</Label>
-          <Select v-model="newWorkItem.tags" multiple :defaultValue="newWorkItem.tags">
+          <Select v-model="newWorkItem.tags" multiple>
             <SelectTrigger>
-              <SelectValue placeholder="Select tags" />
+              <SelectValue>
+                <div class="flex flex-wrap gap-1">
+                  <template v-if="newWorkItem.tags && newWorkItem.tags.length > 0">
+                    <Badge 
+                      v-for="tagId in newWorkItem.tags" 
+                      :key="tagId" 
+                      variant="secondary"
+                      class="mr-1"
+                    >
+                      {{ getTagName(tagId) }}
+                    </Badge>
+                  </template>
+                  <span v-else class="text-muted-foreground">Select tags</span>
+                </div>
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem v-for="tag in availableTags" :key="tag.id" :value="tag.id">
-                {{ tag.tag }}
+                <div class="flex items-center">
+                  <Check 
+                    v-if="newWorkItem.tags && newWorkItem.tags.includes(tag.id)" 
+                    class="mr-2 h-4 w-4" 
+                  />
+                  {{ tag.tag }}
+                </div>
               </SelectItem>
               <div v-if="availableTags.length === 0" class="p-2 text-sm text-gray-500 text-center">
                 No data available
@@ -309,7 +329,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { PlusIcon, MoreVerticalIcon, Loader2Icon } from 'lucide-vue-next'
+import { PlusIcon, MoreVerticalIcon, Loader2Icon, Check } from 'lucide-vue-next'
 import { useAuth } from 'vue-clerk'
 import WorkItemPopup from '@/components/WorkItemPopup.vue'
 import { WorkItemTypeDisplay, StateDisplay, PriorityDisplay } from '@/typings/enums'
@@ -334,7 +354,7 @@ interface WorkItem {
   type: WorkItemType
   parent_uid?: any
   priority?: Priority
-  tags?: string[]
+  tags?: Tag[]
   original_estimate?: number
   createdBy?: AssignedTo
   updatedBy?: AssignedTo
@@ -371,14 +391,19 @@ const isEditWorkItemDialogOpen = ref(false)
 const users = ref<User[]>([])
 const availableTags = ref<Tag[]>([])
 
-const { result: tagsResult, loading: tagsLoading } = useQuery(GET_TAGS)
-const { result: usersResult, loading: usersLoading } = useQuery(GET_USERS_BY_ORG)
-const { result: workItemsResult, loading: workItemsLoading } = useQuery(GET_WORK_ITEMS)
+const { result: tagsResult, loading: tagsLoading, refetch: refetchTags } = useQuery(GET_TAGS)
+const { result: usersResult, loading: usersLoading, refetch: refetchUsers } = useQuery(GET_USERS_BY_ORG)
+const { result: workItemsResult, loading: workItemsLoading, refetch: refetchWorkItems } = useQuery(GET_WORK_ITEMS)
 
 // Watch for tags query result
 watch(tagsResult, (newResult) => {
   if (newResult?.getTags) {
     availableTags.value = newResult.getTags
+    
+    // If we're in edit mode and have selected tags, ensure they're properly initialized
+    if (isEditMode.value && newWorkItem.value.tags && newWorkItem.value.tags.length > 0) {
+      console.log("Tags loaded, selected tags:", newWorkItem.value.tags)
+    }
   }
 })
 
@@ -396,6 +421,7 @@ watch(workItemsResult, (newResult) => {
       id: item.id,
       u_id: item.u_id,
       title: item.title,
+      org_id: item.org_id,
       description: item.description,
       assigned_to: item.assignedTo,
       type: item.type as WorkItemType,
@@ -507,7 +533,18 @@ const editWorkItem = (item: WorkItem) => {
   isEditMode.value = true
   isEditWorkItemDialogOpen.value = true
   console.log(item)
-  newWorkItem.value = { ...item }
+  
+  // Create a deep copy of the item to avoid reference issues
+  newWorkItem.value = { 
+    ...item,
+    // Ensure tags are properly initialized as an array of tag IDs
+    tags: item.tags ? item.tags.map(tag => tag.id) : [],
+    // Ensure parent_uid is properly set to the parent's ID
+    parent_uid: item.parent_uid?.id || item.parent_uid
+  }
+  
+  console.log("Initialized tags:", newWorkItem.value.tags)
+  console.log("Initialized parent:", newWorkItem.value.parent_uid)
 }
 
 const closeDialog = () => {
@@ -537,26 +574,19 @@ const closeDialog = () => {
 const deleteWorkItem = async (id: string) => {
   try {
     await deleteWorkItemMutation({
-      variables: {
-        org_id: currentOrgId.value,
       input: {
-          id
-      }
+        id
       }
     })
 
-    if (data?.deleteWorkItem) {
-      const index = workItems.value.findIndex(wi => wi.uid === item.uid)
-      if (index !== -1) {
-        workItems.value.splice(index, 1)
-      }
-      toast({
+    toast({
       title: "Success",
       description: "Work item deleted successfully",
       duration: 3000
-      })
-    // Refresh the work items list
-    workItemsResult.value = null
+    })
+    
+    // Refetch work items instead of setting workItemsResult.value to null
+    await refetchWorkItems()
   } catch (error) {
     console.error("Error deleting work item:", error)
     toast({
@@ -629,12 +659,10 @@ const saveWorkItem = async () => {
   }
 
   try {
-    loading.value = true
+    saving.value = true
     
     if (isEditMode.value) {
       const { data } = await updateWorkItem({
-        variables: {
-          org_id: currentOrgId.value,
         input: {
           id: newWorkItem.value.id,
           title: newWorkItem.value.title,
@@ -646,35 +674,20 @@ const saveWorkItem = async () => {
           tags: newWorkItem.value.tags,
           original_estimate: newWorkItem.value.original_estimate
           }
-        }
       })
 
       if (data?.updateWorkItem) {
-        const index = workItems.value.findIndex(item => item.id === newWorkItem.value.id)
-        if (index !== -1) {
-          workItems.value[index] = {
-            ...workItems.value[index],
-            title: data.updateWorkItem.title,
-            description: data.updateWorkItem.description,
-            assigned_to: data.updateWorkItem.assignedTo,
-            type: data.updateWorkItem.type as WorkItemType,
-            parent_uid: data.updateWorkItem.parent,
-            priority: data.updateWorkItem.priority as Priority,
-            tags: data.updateWorkItem.tags,
-            original_estimate: data.updateWorkItem.original_estimate
-          }
-        }
-
         toast({
           title: "Success",
           description: "Work item updated successfully",
           duration: 3000
         })
+        
+        // Refetch work items instead of manually updating the array
+        await refetchWorkItems()
       }
     } else {
       const { data } = await createWorkItem({
-        variables: {
-          org_id: currentOrgId.value,
         input: {
           title: newWorkItem.value.title,
           description: newWorkItem.value.description,
@@ -685,38 +698,17 @@ const saveWorkItem = async () => {
           tags: newWorkItem.value.tags,
           original_estimate: newWorkItem.value.original_estimate
           }
-        }
       })
 
       if (data?.createWorkItem) {
-        workItems.value.push({
-          id: data.createWorkItem.id,
-          u_id: data.createWorkItem.u_id,
-          title: data.createWorkItem.title,
-          description: data.createWorkItem.description,
-          assigned_to: data.createWorkItem.assignedTo,
-          type: data.createWorkItem.type as WorkItemType,
-          parent_uid: data.createWorkItem.parent,
-          priority: data.createWorkItem.priority as Priority,
-          tags: data.createWorkItem.tags,
-          original_estimate: data.createWorkItem.original_estimate,
-          createdBy: data.createWorkItem.createdBy,
-          updatedBy: data.createWorkItem.updatedBy,
-          createdAt: data.createWorkItem.createdAt,
-          updatedAt: data.createWorkItem.updatedAt,
-          story_points: data.createWorkItem.story_points,
-          remaining_estimate: data.createWorkItem.remaining_estimate,
-          completed_estimate: data.createWorkItem.completed_estimate,
-          acceptance_criteria: data.createWorkItem.acceptance_criteria,
-          definition_of_done: data.createWorkItem.definition_of_done,
-          state: data.createWorkItem.state
-        })
-
         toast({
           title: "Success",
           description: "Work item created successfully",
           duration: 3000
         })
+        
+        // Refetch work items instead of manually pushing to the array
+        await refetchWorkItems()
       }
     }
 
@@ -730,7 +722,7 @@ const saveWorkItem = async () => {
       duration: 3000
     })
   } finally {
-    loading.value = false
+    saving.value = false
   }
 }
 
@@ -767,6 +759,7 @@ const openWorkItemPopup = (item) => {
   // Make sure we're passing the complete work item with all fields
   selectedWorkItem.value = {
     ...item,
+    org_id: item.org_id,
     // Ensure these fields are properly passed
     assignedTo: item.assignedTo || item.assigned_to,
     createdBy: item.createdBy,
@@ -813,6 +806,11 @@ const copyWorkItemLink = async (item: WorkItem) => {
       duration: 3000
     })
   }
+}
+
+const getTagName = (tagId: string) => {
+  const tag = availableTags.value.find(tag => tag.id === tagId)
+  return tag ? tag.tag : ''
 }
 
 </script>

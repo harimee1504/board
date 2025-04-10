@@ -27,10 +27,10 @@
           </div>
           <div class="space-y-2">
             <label class="font-semibold">State</label>
-            <Select v-model="selectedState" @update:modelValue="handleStateChange" :disabled="updateLoading">
+            <Select v-model="selectedState" @update:modelValue="handleStateChange" :disabled="updateStateLoading">
               <SelectTrigger class="w-full">
                 <SelectValue :placeholder="StateDisplay[workItem?.state] || workItem?.state">
-                  <span v-if="updateLoading" class="text-muted-foreground">Updating...</span>
+                  <span v-if="updateStateLoading" class="text-muted-foreground">Updating...</span>
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -48,8 +48,8 @@
             <label class="font-semibold">Priority</label>
             <p>{{ PriorityDisplay[workItem?.priority] || workItem?.priority }}</p>
           </div>
-          <!-- Story Points for Epic, Feature, User Story -->
-          <div v-if="['epic', 'feature', 'user_story'].includes(workItem?.type)" class="space-y-2">
+          <!-- Story Points for User Story only -->
+          <div v-if="workItem?.type === 'user_story'" class="space-y-2">
             <label class="font-semibold">Story Points</label>
             <p>{{ workItem?.story_points || 'None' }}</p>
           </div>
@@ -173,10 +173,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PencilIcon } from 'lucide-vue-next'
 import { WorkItemTypeDisplay, StateDisplay, PriorityDisplay, State } from '@/typings/enums'
-import { ref, computed } from 'vue'
-import { useMutation } from '@vue/apollo-composable'
-import { UPDATE_WORK_ITEM } from '@/graphql/mutations'
-import useOrganizationStore from '@/lib/useOrganization'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useMutation, useQuery } from '@vue/apollo-composable'
+import { UPDATE_WORK_ITEM, UPDATE_WORK_ITEM_STATE } from '@/graphql/mutations'
+import { GET_TAGS } from '@/graphql/queries'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Check, ChevronsUpDown } from 'lucide-vue-next'
+import { cn } from '@/lib/utils'
 
 const props = defineProps<{
   isOpen: boolean
@@ -190,11 +194,14 @@ const emit = defineEmits<{
 const router = useRouter()
 const domain = window.location.origin
 
-// Add Apollo mutation
+// Add Apollo mutations
 const { mutate: updateWorkItem, loading: updateLoading } = useMutation(UPDATE_WORK_ITEM)
+const { mutate: updateWorkItemState, loading: updateStateLoading } = useMutation(UPDATE_WORK_ITEM_STATE)
 
-// Get the current organization ID
-const { currentOrgId } = useOrganization()
+// Add tag selection functionality
+const { result: tagsResult } = useQuery(GET_TAGS)
+const selectedTags = ref<string[]>([])
+const openTagSelect = ref(false)
 
 // State transition map
 const stateTransitions: Record<State, State[]> = {
@@ -217,20 +224,22 @@ const availableStates = computed(() => {
 })
 
 const handleStateChange = async (newState: State) => {
-  if (!props.workItem?.u_id) return
+  if (!props.workItem?.id || !props.workItem?.org_id) {
+    console.error('Missing required fields:', { id: props.workItem?.id, org_id: props.workItem?.org_id })
+    return
+  }
 
   try {
-    await updateWorkItem({
-      variables: {
-        org_id: currentOrgId.value,
-        input: {
-          id: props.workItem.id,
-          state: newState,
-          type: props.workItem.type // Required field
-        }
-      },
-      fetchPolicy: 'network-only'
+    console.log('Updating state:', { id: props.workItem.id, state: newState, org_id: props.workItem.org_id })
+    const result = await updateWorkItemState({
+      input: {
+        id: props.workItem.id,
+        state: newState.toString(),
+        org_id: props.workItem.org_id
+      }
     })
+    
+    console.log('State update result:', result)
     
     // Update local state
     selectedState.value = newState
