@@ -393,7 +393,10 @@ const availableTags = ref<Tag[]>([])
 
 const { result: tagsResult, loading: tagsLoading, refetch: refetchTags } = useQuery(GET_TAGS)
 const { result: usersResult, loading: usersLoading, refetch: refetchUsers } = useQuery(GET_USERS_BY_ORG)
-const { result: workItemsResult, loading: workItemsLoading, refetch: refetchWorkItems } = useQuery(GET_WORK_ITEMS)
+const { result: workItemsResult, loading: workItemsLoading, refetch: refetchWorkItems } = useQuery(GET_WORK_ITEMS, null, {
+  fetchPolicy: 'network-only',
+  notifyOnNetworkStatusChange: true
+})
 
 // Watch for tags query result
 watch(tagsResult, (newResult) => {
@@ -734,6 +737,9 @@ onMounted(async () => {
     console.log(proxy.$window)  
     const token = await proxy.$window.Clerk.session.getToken({ template: 'convex' })
     localStorage.setItem("authToken", token || "")
+    
+    // Refetch work items when component is mounted
+    await refetchWorkItems()
   } catch (error) {
     console.error('Error during initialization:', error)
     toast({
