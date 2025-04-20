@@ -25,9 +25,6 @@ const handleNavigation = (item) => {
     case 'Work Items':
       router.push('/workitems');
       break;
-    case 'Leave Tracker':
-      router.push('/leave-tracker');
-      break;
     case 'Planning Poker':
       router.push('/planning-poker');
       break;
@@ -74,13 +71,6 @@ onMounted(async () => {
                   icon: "LayoutList",
                   url: () => "/workitems",
                   onClick: () => handleNavigation({ title: 'Work Items' })
-                },
-                {
-                  title: "Leave Tracker",
-                  args: { recycle: true },
-                  icon: "Gauge",
-                  url: () => "/leave-tracker",
-                  onClick: () => handleNavigation({ title: 'Leave Tracker' })
                 },
                 {
                   title: "Planning Poker",

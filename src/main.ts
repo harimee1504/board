@@ -49,10 +49,6 @@ const routes = [
       path: "/workitem/:u_id",
       component: Workitem,
     },
-  {
-    path: "/leave-tracker",
-    component: LeaveTracker,
-  },
 ];
 
 const app = createApp(App);
@@ -99,10 +95,6 @@ const loadAuthWrapper = async () => {
             {
               title: "Work Items",
               url: () => router.push("/workitems")
-            },
-            {
-              title: "Leave Tracker",
-              url: () => router.push("/leave-tracker")
             }
           ]
         }
