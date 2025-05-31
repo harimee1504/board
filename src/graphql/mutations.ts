@@ -110,3 +110,30 @@ export const UPDATE_WORK_ITEM_STATE = gql`
     }
   }
 `;
+
+export const CREATE_SPRINT = gql`
+  mutation CreateSprint($input: SprintCreate!) {
+    createSprint(input: $input) {
+      id
+      title
+      description
+      orgId
+      createdBy {
+        id
+        firstName
+        lastName
+      }
+      updatedBy {
+        id
+        firstName
+        lastName
+      }
+      createdAt
+      updatedAt
+      startDate
+      endDate
+      iteration
+      initiative
+    }
+  }
+`;

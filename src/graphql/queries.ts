@@ -216,3 +216,28 @@ export const GET_ACTIVE_USER_STORIES = gql`
     }
   }
 `;
+
+export const GET_SPRINTS = gql`
+  query GetSprints {
+    getSprints(input: { by: "all" }) {
+      id
+      title
+      description
+      orgId
+      createdBy {
+        id
+        firstName
+        lastName
+      }
+      updatedBy {
+        id
+        firstName
+        lastName
+      }
+      createdAt
+      updatedAt
+      iteration
+      current
+    }
+  }
+`;

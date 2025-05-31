@@ -2,7 +2,50 @@
   <div class="container mx-auto p-4 font-poppins">
     <h1 class="text-2xl font-bold mb-6">Sprint Board</h1>
 
-    <div class="overflow-x-auto">
+    <!-- Loading State -->
+    <div v-if="loading" class="text-center py-4">
+      <div class="inline-block animate-spin h-8 w-8 border-4 border-gray-200 border-t-blue-500 rounded-full"></div>
+      <p class="mt-2">Loading sprint data...</p>
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="error" class="p-4 bg-red-50 text-red-500 rounded-lg border border-red-200 mb-6">
+      {{ error }}
+    </div>
+
+    <!-- No Sprint Section -->
+    <div v-else-if="!currentSprint" class="flex flex-col items-center justify-center p-8 mb-6 bg-gray-50 rounded-lg border border-gray-200">
+      <h2 class="text-xl font-semibold mb-4">No Active Sprint</h2>
+      <p class="text-gray-500 mb-4">There are no active sprints at the moment. Start a new sprint to begin tracking work items.</p>
+      <Button @click="openSprintModal">Initiate Sprint</Button>
+    </div>
+
+    <!-- Sprint Info Banner -->
+    <div v-else class="p-4 bg-blue-50 rounded-lg border border-blue-200 mb-6">
+      <div class="flex justify-between items-center">
+        <div>
+          <h2 class="text-xl font-semibold">{{ currentSprint.title }}</h2>
+          <p class="text-gray-600 mt-1">{{ currentSprint.description }}</p>
+          <div class="flex mt-2 text-sm text-gray-500 space-x-4">
+            <div>
+              <span class="font-medium">Start:</span> {{ formatDate(currentSprint.startDate) }}
+            </div>
+            <div>
+              <span class="font-medium">End:</span> {{ formatDate(currentSprint.endDate) }}
+            </div>
+            <div>
+              <span class="font-medium">Iteration:</span> {{ currentSprint.iteration }}
+            </div>
+          </div>
+        </div>
+        <div>
+          <Badge variant="outline" class="ml-2">Active Sprint</Badge>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sprint Board -->
+    <div v-if="currentSprint" class="overflow-x-auto">
       <div class="min-w-[1200px]">
         <!-- Board Header -->
         <div class="grid grid-cols-8 gap-4 mb-4">
@@ -13,9 +56,12 @@
           </div>
         </div>
 
+        <!-- No User Stories Message -->
+        <div v-if="userStories.length === 0" class="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+          <p class="text-gray-500">No user stories found for this sprint. Add user stories to get started.</p>
+        </div>
+
         <!-- Swimming Lanes -->
-        <div v-if="loading" class="text-center py-4">Loading...</div>
-        <div v-else-if="error" class="text-center text-red-500 py-4">{{ error }}</div>
         <div v-else>
           <!-- Group work items by user stories -->
           <div v-for="userStory in userStories" :key="userStory.id" class="mb-4 border border-gray-200 p-4 rounded">
@@ -76,15 +122,68 @@
       </div>
     </div>
   </div>
+
+  <!-- Sprint creation modal -->
+  <Dialog :open="isSprintModalOpen" @update:open="isSprintModalOpen = $event">
+    <DialogContent class="sm:max-w-[500px]">
+      <DialogHeader>
+        <DialogTitle>Initiate Sprint</DialogTitle>
+        <DialogDescription>
+          Create a new sprint to organize your work items
+        </DialogDescription>
+      </DialogHeader>
+      <div class="grid gap-4 py-4">
+        <div class="grid gap-2">
+          <Label for="title">Title</Label>
+          <Input id="title" v-model="sprintForm.title" placeholder="Sprint title" />
+        </div>
+        <div class="grid gap-2">
+          <Label for="description">Description</Label>
+          <Textarea id="description" v-model="sprintForm.description" placeholder="Sprint description" />
+        </div>
+        <div class="grid gap-2">
+          <Label for="duration">Duration (days)</Label>
+          <Input id="duration" v-model="sprintForm.duration" type="number" min="1" />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button @click="closeSprintModal" variant="outline">Cancel</Button>
+        <Button @click="createSprint" :disabled="creatingSprintLoading">
+          <Loader2 v-if="creatingSprintLoading" class="mr-2 h-4 w-4 animate-spin" />
+          Create
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useQuery, useMutation } from '@vue/apollo-composable'
-import { GET_ACTIVE_USER_STORIES } from '@/graphql/queries'
-import { UPDATE_WORK_ITEM_STATE } from '@/graphql/mutations'
+import { GET_ACTIVE_USER_STORIES, GET_SPRINTS } from '@/graphql/queries'
+import { UPDATE_WORK_ITEM_STATE, CREATE_SPRINT } from '@/graphql/mutations'
 import draggable from 'vuedraggable'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription, 
+  DialogFooter 
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select'
+import { Loader2 } from 'lucide-vue-next'
 
 interface User {
   id: string
@@ -128,10 +227,31 @@ interface WorkItem {
   mentions?: User[]
 }
 
+interface Sprint {
+  id: string
+  title: string
+  description: string
+  orgId: string
+  createdBy: User
+  updatedBy: User
+  createdAt: string
+  updatedAt: string
+  startDate: string
+  endDate: string
+  iteration: string
+  current?: boolean
+}
+
 interface WorkItemsByState {
   [key: string]: {
     [key: string]: WorkItem[]
   }
+}
+
+interface SprintForm {
+  title: string
+  description: string
+  duration: number
 }
 
 const states = ['new', 'active', 'on_hold', 'in_test', 'accepted', 'rejected', 'closed'] as const
@@ -139,15 +259,50 @@ type State = typeof states[number]
 
 const loading = ref(true)
 const error = ref<string | null>(null)
+const isSprintModalOpen = ref(false)
+const creatingSprintLoading = ref(false)
 
-const { result, loading: queryLoading, error: queryError } = useQuery(GET_ACTIVE_USER_STORIES)
+const sprintForm = ref<SprintForm>({
+  title: '',
+  description: '',
+  duration: 14
+})
+
+// Get active user stories
+const { result: userStoriesResult, loading: userStoriesLoading, error: userStoriesError } = useQuery(GET_ACTIVE_USER_STORIES)
+
+// Get sprints
+const { result: sprintsResult, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } = useQuery(GET_SPRINTS)
+
+// Update work item state mutation
 const updateWorkItemStateMutation = useMutation(UPDATE_WORK_ITEM_STATE)
+
+// Create sprint mutation
+const createSprintMutation = useMutation(CREATE_SPRINT)
+
+// Format date helper function
+const formatDate = (dateString: string) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+// Computed property to get current sprint
+const currentSprint = computed(() => {
+  if (!sprintsResult.value?.getSprints || sprintsResult.value.getSprints.length === 0) return null;
+  
+  // Find sprint with current=true, or just return the first one if none marked as current
+  const sprints = sprintsResult.value.getSprints;
+  const currentSprint = sprints.find((sprint: Sprint) => sprint.current === true);
+  return currentSprint || sprints[0];
+})
 
 // Computed property to get user stories (work items with type 'user_story' and no parent)
 const userStories = computed(() => {
-  if (!result.value?.getActiveUserStories) return []
-  return result.value.getActiveUserStories.filter((item: WorkItem) => 
-    item.type === 'user_story' && !item.parent
+  if (!userStoriesResult.value?.getActiveUserStories) return []
+  return userStoriesResult.value.getActiveUserStories.filter((item: WorkItem) => 
+    item.type === 'user_story' && !item.parent &&
+    (item.sprint === currentSprint.value?.id || item.current_sprint === currentSprint.value?.id)
   )
 })
 
@@ -168,9 +323,10 @@ const workItemsByState = computed<WorkItemsByState>(() => {
     }
   })
 
-  // Organize work items
-  result.value?.getActiveUserStories.forEach((item: WorkItem) => {
-    if (item.parent && organized[item.parent.id]) {
+  // Organize work items that belong to the current sprint
+  userStoriesResult.value?.getActiveUserStories.forEach((item: WorkItem) => {
+    if (item.parent && organized[item.parent.id] && 
+       (item.sprint === currentSprint.value?.id || item.current_sprint === currentSprint.value?.id)) {
       const state = item.state.toLowerCase() as State
       if (states.includes(state)) {
         organized[item.parent.id][state].push(item)
@@ -205,12 +361,12 @@ const workItemCounts = computed(() => {
 })
 
 // Watch for query loading and error states
-watch(queryLoading, (newValue) => {
-  loading.value = newValue
+watch([userStoriesLoading, sprintsLoading], ([userStoriesLoadingVal, sprintsLoadingVal]) => {
+  loading.value = userStoriesLoadingVal || sprintsLoadingVal
 })
 
-watch(queryError, (newValue) => {
-  error.value = newValue?.message || 'An error occurred while fetching work items'
+watch([userStoriesError, sprintsError], ([userStoriesErrorVal, sprintsErrorVal]) => {
+  error.value = userStoriesErrorVal?.message || sprintsErrorVal?.message || null
 })
 
 const handleDragEnd = async (event: any, newState: State, userStoryId: string) => {
@@ -226,7 +382,7 @@ const handleDragEnd = async (event: any, newState: State, userStoryId: string) =
         org_id: item.org_id
       }
     })
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to update work item state:', err)
     // Revert the drag if the update failed
     const fromState = event.from.getAttribute('data-state')
@@ -237,11 +393,63 @@ const handleDragEnd = async (event: any, newState: State, userStoryId: string) =
       toList.splice(itemIndex, 1)
       fromList.push(item)
     }
+    error.value = err?.message || 'Failed to update work item'
   }
 }
 
-onMounted(() => {
-  loading.value = false
+const openSprintModal = () => {
+  isSprintModalOpen.value = true
+}
+
+const closeSprintModal = () => {
+  isSprintModalOpen.value = false
+  sprintForm.value = {
+    title: '',
+    description: '',
+    duration: 14
+  }
+}
+
+const createSprint = async () => {
+  if (!sprintForm.value.title) {
+    error.value = 'Title is required'
+    return
+  }
+
+  creatingSprintLoading.value = true
+
+  try {
+    const startDate = new Date()
+    // Calculate end date by adding duration days to start date
+    const endDate = new Date(startDate)
+    endDate.setDate(endDate.getDate() + sprintForm.value.duration)
+
+    await createSprintMutation.mutate({
+      input: {
+        title: sprintForm.value.title,
+        description: sprintForm.value.description || '',
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0]
+      }
+    })
+
+    closeSprintModal()
+    await refetchSprints()
+  } catch (err: any) {
+    console.error('Failed to create sprint:', err)
+    error.value = err?.message || 'Failed to create sprint'
+  } finally {
+    creatingSprintLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  try {
+    await refetchSprints()
+  } catch (err: any) {
+    console.error('Failed to fetch sprints:', err)
+    error.value = 'Failed to fetch sprints'
+  }
 })
 </script>
 

@@ -483,16 +483,29 @@ const needsParent = computed(() => {
 
 const availableParents = computed(() => {
   const type = newWorkItem.value.type
+  const closedStates = ['closed', 'rejected']
   switch (type) {
     case 'epic':
-      return workItems.value.filter(item => item.type === 'initiative' && item.state === 'active')
+      return workItems.value.filter(item => 
+        item.type === 'initiative' && 
+        !closedStates.includes(item.state?.toLowerCase())
+      )
     case 'feature':
-      return workItems.value.filter(item => item.type === 'epic' && item.state === 'active')
+      return workItems.value.filter(item => 
+        item.type === 'epic' && 
+        !closedStates.includes(item.state?.toLowerCase())
+      )
     case 'user_story':
-      return workItems.value.filter(item => item.type === 'feature' && item.state === 'active')
+      return workItems.value.filter(item => 
+        item.type === 'feature' && 
+        !closedStates.includes(item.state?.toLowerCase())
+      )
     case 'task':
     case 'bug':
-      return workItems.value.filter(item => item.type === 'user_story' && item.state === 'active')
+      return workItems.value.filter(item => 
+        item.type === 'user_story' && 
+        item.state?.toLowerCase() === 'active'
+      )
     default:
       return []
   }
