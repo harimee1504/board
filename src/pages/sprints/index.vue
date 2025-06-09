@@ -23,23 +23,53 @@
     <!-- Sprint Info Banner -->
     <div v-else class="p-4 bg-blue-50 rounded-lg border border-blue-200 mb-6">
       <div class="flex justify-between items-center">
-        <div>
-          <h2 class="text-xl font-semibold">{{ currentSprint.title }}</h2>
-          <p class="text-gray-600 mt-1">{{ currentSprint.description }}</p>
-          <div class="flex mt-2 text-sm text-gray-500 space-x-4">
-            <div>
-              <span class="font-medium">Start:</span> {{ formatDate(currentSprint.startDate) }}
-            </div>
-            <div>
-              <span class="font-medium">End:</span> {{ formatDate(currentSprint.endDate) }}
-            </div>
-            <div>
-              <span class="font-medium">Iteration:</span> {{ currentSprint.iteration }}
+        <div class="flex items-center gap-4">
+          <Select v-model="selectedSprintId" @update:modelValue="handleSprintChange">
+            <SelectTrigger class="w-[200px]">
+              <SelectValue placeholder="Select Sprint" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="sprint in sprintsResult?.getSprints" 
+                         :key="sprint.id" 
+                         :value="sprint.id"
+                         :class="{ 'font-semibold': sprint.current }">
+                {{ sprint.title }}
+                <span v-if="sprint.current" class="ml-2 text-xs text-blue-600">(Current)</span>
+              </SelectItem>
+              <SelectSeparator />
+              <div 
+                class="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none text-blue-600 hover:bg-accent hover:text-blue-700 focus:bg-accent focus:text-blue-700"
+                @click="(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openSprintModal();
+                }"
+              >
+                <div class="flex items-center">
+                  <Plus class="h-4 w-4 mr-2" />
+                  Create New Sprint
+                </div>
+              </div>
+            </SelectContent>
+          </Select>
+          <div>
+            <h2 class="text-xl font-semibold">{{ currentSprint.title }}</h2>
+            <p class="text-gray-600 mt-1">{{ currentSprint.description }}</p>
+            <div class="flex mt-2 text-sm text-gray-500 space-x-4">
+              <div>
+                <span class="font-medium">Start:</span> {{ formatDate(currentSprint.startDate) }}
+              </div>
+              <div>
+                <span class="font-medium">End:</span> {{ formatDate(currentSprint.endDate) }}
+              </div>
+              <div>
+                <span class="font-medium">Iteration:</span> {{ currentSprint.iteration }}
+              </div>
             </div>
           </div>
         </div>
         <div>
-          <Badge variant="outline" class="ml-2">Active Sprint</Badge>
+          <Badge v-if="currentSprint.current" variant="outline" class="ml-2">Active Sprint</Badge>
         </div>
       </div>
     </div>
@@ -181,9 +211,10 @@ import {
   SelectContent, 
   SelectItem, 
   SelectTrigger, 
-  SelectValue 
+  SelectValue,
+  SelectSeparator 
 } from '@/components/ui/select'
-import { Loader2 } from 'lucide-vue-next'
+import { Loader2, Plus } from 'lucide-vue-next'
 import { toast } from '@/components/ui/toast'
 
 interface User {
@@ -288,12 +319,22 @@ const formatDate = (dateString: string) => {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-// Computed property to get current sprint
+// Add selectedSprintId ref
+const selectedSprintId = ref<string>('')
+
+// Update currentSprint computed to use selectedSprintId
 const currentSprint = computed(() => {
   if (!sprintsResult.value?.getSprints || sprintsResult.value.getSprints.length === 0) return null;
   
-  // Find sprint with current=true, or just return the first one if none marked as current
   const sprints = sprintsResult.value.getSprints;
+  
+  // If a sprint is selected, return that sprint
+  if (selectedSprintId.value) {
+    const selectedSprint = sprints.find((sprint: Sprint) => sprint.id === selectedSprintId.value);
+    if (selectedSprint) return selectedSprint;
+  }
+  
+  // Otherwise, find sprint with current=true, or just return the first one if none marked as current
   const currentSprint = sprints.find((sprint: Sprint) => sprint.current === true);
   return currentSprint || sprints[0];
 })
@@ -450,9 +491,20 @@ const createSprint = async () => {
   }
 }
 
+// Add handler for sprint change
+const handleSprintChange = (sprintId: string) => {
+  selectedSprintId.value = sprintId;
+}
+
+// Update onMounted to set initial selected sprint
 onMounted(async () => {
   try {
     await refetchSprints()
+    // Set initial selected sprint to current sprint or first sprint
+    if (sprintsResult.value?.getSprints?.length > 0) {
+      const currentSprint = sprintsResult.value.getSprints.find((sprint: Sprint) => sprint.current === true);
+      selectedSprintId.value = currentSprint?.id || sprintsResult.value.getSprints[0].id;
+    }
   } catch (err: any) {
     console.error('Failed to fetch sprints:', err)
     error.value = 'Failed to fetch sprints'
