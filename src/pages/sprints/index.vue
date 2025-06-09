@@ -378,17 +378,28 @@ const workItemsByState = computed<WorkItemsByState>(() => {
     }
   })
 
-  // Organize work items that belong to the current sprint
+  // Organize all work items that belong to user stories in the current sprint
   userStoriesResult.value?.getSprintUserStories.forEach((item: WorkItem) => {
-    if (item.parent && organized[item.parent.id]) {
-      const state = item.state.toLowerCase() as State
+    // Skip if it's a user story itself
+    if (item.type === 'user_story') return;
+
+    // Find the parent user story
+    const parentUserStory = userStoriesResult.value?.getSprintUserStories.find(
+      (story: WorkItem) => story.id === item.parent?.id
+    );
+
+    // If the item has a parent user story and that parent is in our organized structure
+    if (parentUserStory && organized[parentUserStory.id]) {
+      // Default to 'new' state if state is undefined
+      const state = (item.state || 'new').toLowerCase() as State;
       if (states.includes(state)) {
-        organized[item.parent.id][state].push(item)
+        // Add the item to its parent's state column
+        organized[parentUserStory.id][state].push(item);
       }
     }
-  })
+  });
 
-  return organized
+  return organized;
 })
 
 // Computed property to count work items by state
