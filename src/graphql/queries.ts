@@ -243,3 +243,44 @@ export const GET_SPRINTS = gql`
     }
   }
 `;
+
+export const GET_SPRINT_USER_STORIES = gql`
+  query GetSprintUserStories($sprintId: ID!) {
+    getSprintUserStories(sprintId: $sprintId) {
+ id
+      u_id
+      title
+      description
+      type
+      assignedTo{
+        id
+        firstName
+        lastName
+        email
+        imageUrl
+      }
+      sprint
+      priority
+      story_points
+      original_estimate
+      parent {
+        id
+        u_id
+        title
+      }
+      createdAt
+      createdBy{
+        id
+        firstName
+        lastName
+        email
+        imageUrl
+      }
+      org_id
+      tags {
+        id
+        tag
+      }
+    }
+  }
+`;

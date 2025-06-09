@@ -190,7 +190,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useQuery, useMutation } from '@vue/apollo-composable'
-import { GET_ACTIVE_USER_STORIES, GET_SPRINTS } from '@/graphql/queries'
+import { GET_SPRINT_USER_STORIES, GET_SPRINTS } from '@/graphql/queries'
 import { UPDATE_WORK_ITEM_STATE, CREATE_SPRINT } from '@/graphql/mutations'
 import draggable from 'vuedraggable'
 import { Badge } from '@/components/ui/badge'
@@ -293,6 +293,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const isSprintModalOpen = ref(false)
 const creatingSprintLoading = ref(false)
+const selectedSprintId = ref<string>('')
 
 const sprintForm = ref<SprintForm>({
   title: '',
@@ -300,8 +301,16 @@ const sprintForm = ref<SprintForm>({
   duration: 14
 })
 
-// Get active user stories
-const { result: userStoriesResult, loading: userStoriesLoading, error: userStoriesError } = useQuery(GET_ACTIVE_USER_STORIES)
+// Get user stories for selected sprint
+const { result: userStoriesResult, loading: userStoriesLoading, error: userStoriesError, refetch: refetchUserStories } = useQuery(
+  GET_SPRINT_USER_STORIES,
+  () => ({
+    sprintId: selectedSprintId.value
+  }),
+  () => ({
+    enabled: !!selectedSprintId.value
+  })
+)
 
 // Get sprints
 const { result: sprintsResult, loading: sprintsLoading, error: sprintsError, refetch: refetchSprints } = useQuery(GET_SPRINTS)
@@ -318,9 +327,6 @@ const formatDate = (dateString: string) => {
   const date = new Date(dateString);
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
-
-// Add selectedSprintId ref
-const selectedSprintId = ref<string>('')
 
 // Update currentSprint computed to use selectedSprintId
 const currentSprint = computed(() => {
@@ -339,16 +345,23 @@ const currentSprint = computed(() => {
   return currentSprint || sprints[0];
 })
 
-// Computed property to get user stories (work items with type 'user_story' and no parent)
+// Update computed property to get user stories
 const userStories = computed(() => {
-  if (!userStoriesResult.value?.getActiveUserStories) return []
-  return userStoriesResult.value.getActiveUserStories.filter((item: WorkItem) => 
-    item.type === 'user_story' && !item.parent &&
-    (item.sprint === currentSprint.value?.id || item.current_sprint === currentSprint.value?.id)
-  )
+  console.log('Raw sprint user stories:', userStoriesResult.value?.getSprintUserStories)
+  if (!userStoriesResult.value?.getSprintUserStories) {
+    console.log('No sprint user stories data available')
+    return []
+  }
+  const filtered = userStoriesResult.value.getSprintUserStories.filter((item: WorkItem) => {
+    const isUserStory = item.type === 'user_story'
+    console.log('Item:', item.title, 'Type:', item.type, 'Is User Story:', isUserStory)
+    return isUserStory
+  })
+  console.log('Filtered user stories:', filtered)
+  return filtered
 })
 
-// Computed property to organize work items by state and parent
+// Update computed property to organize work items by state and parent
 const workItemsByState = computed<WorkItemsByState>(() => {
   const organized: WorkItemsByState = {}
   
@@ -366,9 +379,8 @@ const workItemsByState = computed<WorkItemsByState>(() => {
   })
 
   // Organize work items that belong to the current sprint
-  userStoriesResult.value?.getActiveUserStories.forEach((item: WorkItem) => {
-    if (item.parent && organized[item.parent.id] && 
-       (item.sprint === currentSprint.value?.id || item.current_sprint === currentSprint.value?.id)) {
+  userStoriesResult.value?.getSprintUserStories.forEach((item: WorkItem) => {
+    if (item.parent && organized[item.parent.id]) {
       const state = item.state.toLowerCase() as State
       if (states.includes(state)) {
         organized[item.parent.id][state].push(item)
@@ -492,8 +504,11 @@ const createSprint = async () => {
 }
 
 // Add handler for sprint change
-const handleSprintChange = (sprintId: string) => {
+const handleSprintChange = async (sprintId: string) => {
   selectedSprintId.value = sprintId;
+  if (sprintId) {
+    await refetchUserStories();
+  }
 }
 
 // Update onMounted to set initial selected sprint
@@ -504,6 +519,9 @@ onMounted(async () => {
     if (sprintsResult.value?.getSprints?.length > 0) {
       const currentSprint = sprintsResult.value.getSprints.find((sprint: Sprint) => sprint.current === true);
       selectedSprintId.value = currentSprint?.id || sprintsResult.value.getSprints[0].id;
+      if (selectedSprintId.value) {
+        await refetchUserStories();
+      }
     }
   } catch (err: any) {
     console.error('Failed to fetch sprints:', err)
