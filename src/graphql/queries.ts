@@ -238,6 +238,8 @@ export const GET_SPRINTS = gql`
       updatedAt
       iteration
       current
+      startDate
+      endDate
     }
   }
 `;

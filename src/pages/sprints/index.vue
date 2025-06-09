@@ -184,6 +184,7 @@ import {
   SelectValue 
 } from '@/components/ui/select'
 import { Loader2 } from 'lucide-vue-next'
+import { toast } from '@/components/ui/toast'
 
 interface User {
   id: string
@@ -419,18 +420,18 @@ const createSprint = async () => {
   creatingSprintLoading.value = true
 
   try {
-    const startDate = new Date()
-    // Calculate end date by adding duration days to start date
-    const endDate = new Date(startDate)
-    endDate.setDate(endDate.getDate() + sprintForm.value.duration)
-
     await createSprintMutation.mutate({
       input: {
         title: sprintForm.value.title,
         description: sprintForm.value.description || '',
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0]
+        duration: sprintForm.value.duration,
       }
+    })
+
+    toast({
+      title: "Sprint Created",
+      description: `Successfully created sprint "${sprintForm.value.title}"`,
+      variant: "default",
     })
 
     closeSprintModal()
@@ -438,6 +439,12 @@ const createSprint = async () => {
   } catch (err: any) {
     console.error('Failed to create sprint:', err)
     error.value = err?.message || 'Failed to create sprint'
+    
+    toast({
+      title: "Error",
+      description: err?.message || 'Failed to create sprint',
+      variant: "destructive",
+    })
   } finally {
     creatingSprintLoading.value = false
   }
