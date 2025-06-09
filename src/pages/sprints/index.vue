@@ -106,14 +106,22 @@
 
               <!-- Draggable Columns -->
               <template v-for="state in states" :key="state">
-                <div class="bg-gray-50 p-4 rounded-lg min-h-[100px] border border-gray-300">
+                <div 
+                  class="bg-gray-50 p-4 rounded-lg min-h-[100px] border border-gray-300"
+                  :data-state="state"
+                >
                   <draggable
                     :list="workItemsByState[userStory.id][state]"
                     :group="{ name: 'workitems', pull: true, put: true }"
                     :animation="200"
                     item-key="id"
                     class="space-y-2 min-h-[50px]"
-                    @end="handleDragEnd($event, state, userStory.id)"
+                    @start="handleDragStart($event, state)"
+                    @end="(event) => {
+                      const fromState = event.from.closest('[data-state]')?.getAttribute('data-state')
+                      const toState = event.to.closest('[data-state]')?.getAttribute('data-state')
+                      handleDragEnd(event, fromState, toState, userStory.id)
+                    }"
                   >
                     <template #item="{ element }">
                       <div 
@@ -434,31 +442,109 @@ watch([userStoriesError, sprintsError], ([userStoriesErrorVal, sprintsErrorVal])
   error.value = userStoriesErrorVal?.message || sprintsErrorVal?.message || null
 })
 
-const handleDragEnd = async (event: any, newState: State, userStoryId: string) => {
-  if (!event.from || !event.to) return
+// Add dragStart handler and state tracking
+const dragSourceState = ref<State | null>(null)
+const dragTargetState = ref<State | null>(null)
+
+const handleDragStart = (event: any, state: State) => {
+  dragSourceState.value = state
+  dragTargetState.value = null
+}
+
+const handleDragEnd = async (event: any, fromState: string | null, toState: string | null, userStoryId: string) => {
+  if (!event.from || !event.to) {
+    console.error('Invalid drag event:', event)
+    return
+  }
   
   const item = event.item.__draggable_context.element
+  if (!item || !item.id) {
+    console.error('Invalid dragged item:', item)
+    return
+  }
+
+  if (!fromState || !toState || !states.includes(fromState as State) || !states.includes(toState as State)) {
+    console.error('Invalid states:', { fromState, toState })
+    return
+  }
+
+  // Don't process if source and target states are the same
+  if (fromState === toState) {
+    console.log('Same state drag, ignoring:', { fromState, toState })
+    return
+  }
+
+  // Validate that we have the required state lists
+  if (!workItemsByState.value[userStoryId] || 
+      !workItemsByState.value[userStoryId][fromState] || 
+      !workItemsByState.value[userStoryId][toState]) {
+    console.error('Invalid state structure:', {
+      userStoryId,
+      fromState,
+      toState,
+      workItemsByState: workItemsByState.value[userStoryId]
+    })
+    toast({
+      title: "Error",
+      description: "Invalid state structure. Please refresh the page.",
+      variant: "destructive",
+    })
+    return
+  }
   
   try {
-    await updateWorkItemStateMutation.mutate({
+    // Log the state transition for debugging
+    console.log('State transition:', {
+      from: fromState,
+      to: toState,
+      itemId: item.id
+    })
+
+    // The item is already in the target list due to vuedraggable's behavior
+    // We just need to update the backend with the new state
+    const result = await updateWorkItemStateMutation.mutate({
       input: {
         id: item.id,
-        state: newState.toUpperCase(),
+        state: toState,
         org_id: item.org_id
       }
     })
+
+    // Log the mutation result for debugging
+    console.log('State update result:', result)
+
+    // Refetch data to ensure UI is in sync with backend
+    await refetchUserStories()
+
+    // Show success toast
+    toast({
+      title: "Success",
+      description: `Work item moved from ${fromState} to ${toState}`,
+      variant: "default",
+    })
   } catch (err: any) {
     console.error('Failed to update work item state:', err)
-    // Revert the drag if the update failed
-    const fromState = event.from.getAttribute('data-state')
+    
+    // Since the item is already moved by vuedraggable, we need to move it back
     const fromList = workItemsByState.value[userStoryId][fromState]
-    const toList = workItemsByState.value[userStoryId][newState]
+    const toList = workItemsByState.value[userStoryId][toState]
     const itemIndex = toList.findIndex((i: WorkItem) => i.id === item.id)
+    
     if (itemIndex !== -1) {
-      toList.splice(itemIndex, 1)
-      fromList.push(item)
+      // Remove from target list and add back to source list
+      const [movedItem] = toList.splice(itemIndex, 1)
+      fromList.push(movedItem)
     }
-    error.value = err?.message || 'Failed to update work item'
+
+    // Show error toast
+    toast({
+      title: "Error",
+      description: err?.message || 'Failed to update work item state',
+      variant: "destructive",
+    })
+
+    // Refetch to ensure UI is in sync with backend
+    await refetchUserStories()
   }
 }
 

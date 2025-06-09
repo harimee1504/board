@@ -160,14 +160,7 @@ export const GET_ACTIVE_USER_STORIES = gql`
       description
       state
       type
-      createdBy {
-        id
-        firstName
-        lastName
-        email
-        imageUrl    
-      }
-      updatedBy {
+      assignedTo{
         id
         firstName
         lastName
@@ -175,16 +168,6 @@ export const GET_ACTIVE_USER_STORIES = gql`
         imageUrl
       }
       sprint
-      assignedTo {
-        id
-        firstName
-        lastName
-        email
-        imageUrl
-      }
-      org_id
-      createdAt
-      updatedAt
       spillover
       initial_sprint
       current_sprint
@@ -199,19 +182,27 @@ export const GET_ACTIVE_USER_STORIES = gql`
         id
         u_id
         title
-        state
-        type
       }
-      tags {
-        id
-        tag
-      }
-      mentions {
+      createdAt
+      updatedAt
+      createdBy{
         id
         firstName
         lastName
         email
         imageUrl
+      }
+      updatedBy{
+        id
+        firstName
+        lastName
+        email
+        imageUrl
+      }
+      org_id
+      tags {
+        id
+        tag
       }
     }
   }
@@ -251,6 +242,7 @@ export const GET_SPRINT_USER_STORIES = gql`
       u_id
       title
       description
+      state
       type
       assignedTo{
         id
@@ -260,16 +252,31 @@ export const GET_SPRINT_USER_STORIES = gql`
         imageUrl
       }
       sprint
+      spillover
+      initial_sprint
+      current_sprint
       priority
       story_points
       original_estimate
+      remaining_estimate
+      completed_estimate
+      acceptance_criteria
+      definition_of_done
       parent {
         id
         u_id
         title
       }
       createdAt
+      updatedAt
       createdBy{
+        id
+        firstName
+        lastName
+        email
+        imageUrl
+      }
+      updatedBy{
         id
         firstName
         lastName
