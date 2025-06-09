@@ -13,6 +13,7 @@ import Sprints from "./pages/sprints/index.vue";
 import Workitems from "./pages/work_items/index.vue";
 import Workitem from "./pages/work_items/workitem.vue";
 import LeaveTracker from "./pages/leave_tracker/index.vue";
+import PlanningPoker from "./pages/planning_poker/index.vue";
 
 import { clerkPlugin } from "vue-clerk";
 
@@ -48,6 +49,10 @@ const routes = [
     {
       path: "/workitem/:u_id",
       component: Workitem,
+    },
+    {
+      path: "/planning-poker",
+      component: PlanningPoker,
     },
 ];
 
@@ -95,6 +100,10 @@ const loadAuthWrapper = async () => {
             {
               title: "Work Items",
               url: () => router.push("/workitems")
+            },
+            {
+              title: "Planning Poker",
+              url: () => router.push("/planning-poker")
             }
           ]
         }

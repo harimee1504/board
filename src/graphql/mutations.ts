@@ -137,3 +137,22 @@ export const CREATE_SPRINT = gql`
     }
   }
 `;
+
+export const UPDATE_WORK_ITEM_STORY_POINTS = gql`
+  mutation UpdateWorkItemStoryPoints($input: WorkItemUpdateStoryPoints!) {
+    updateWorkItemStoryPoints(input: $input) {
+      id
+      u_id
+      title
+      story_points
+      updatedAt
+      updatedBy {
+        id
+        firstName
+        lastName
+        email
+        imageUrl
+      }
+    }
+  }
+`;
