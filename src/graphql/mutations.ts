@@ -145,6 +145,7 @@ export const UPDATE_WORK_ITEM_STORY_POINTS = gql`
       u_id
       title
       story_points
+      current_sprint
       updatedAt
       updatedBy {
         id

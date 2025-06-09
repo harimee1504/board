@@ -65,10 +65,31 @@
             </div>
           </div>
 
+          <!-- Sprint Selection -->
+          <div class="mb-6">
+            <h3 class="text-lg font-medium mb-3">Select Sprint</h3>
+            <Select v-model="selectedSprintId">
+              <SelectTrigger class="w-full">
+                <SelectValue placeholder="Select a sprint" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem 
+                  v-for="sprint in availableSprints" 
+                  :key="sprint.id" 
+                  :value="sprint.id"
+                  :class="{ 'font-semibold': sprint.current }"
+                >
+                  {{ sprint.title }}
+                  <span v-if="sprint.current" class="ml-2 text-xs text-blue-600">(Current)</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           <!-- Action Buttons -->
           <div class="flex justify-end gap-3">
             <Button variant="outline" @click="skipItem">Skip</Button>
-            <Button @click="submitEstimation" :disabled="!selectedPoints">
+            <Button @click="submitEstimation" :disabled="!selectedPoints || !selectedSprintId">
               Submit Estimation
             </Button>
           </div>
@@ -86,11 +107,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useQuery, useMutation } from '@vue/apollo-composable'
-import { GET_ACTIVE_USER_STORIES } from '@/graphql/queries'
+import { GET_ACTIVE_USER_STORIES, GET_SPRINTS } from '@/graphql/queries'
 import { UPDATE_WORK_ITEM_STORY_POINTS } from '@/graphql/mutations'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { toast } from '@/components/ui/toast'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 interface User {
   id: string
@@ -125,9 +147,13 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const selectedItem = ref<WorkItem | null>(null)
 const selectedPoints = ref<number | null>(null)
+const selectedSprintId = ref<string | null>(null)
 
 // Get work items
 const { result: workItemsResult, loading: workItemsLoading, error: workItemsError, refetch: refetchWorkItems } = useQuery(GET_ACTIVE_USER_STORIES)
+
+// Get sprints
+const { result: sprintsResult, loading: sprintsLoading, error: sprintsError } = useQuery(GET_SPRINTS)
 
 // Update story points mutation
 const updateStoryPointsMutation = useMutation(UPDATE_WORK_ITEM_STORY_POINTS)
@@ -140,6 +166,12 @@ const unestimatedItems = computed(() => {
     item.state.toLowerCase() === 'backlog' &&
     !item.story_points
   )
+})
+
+// Computed property to get available sprints
+const availableSprints = computed(() => {
+  if (!sprintsResult.value?.getSprints) return []
+  return sprintsResult.value.getSprints
 })
 
 // Methods
@@ -155,29 +187,32 @@ const selectPoints = (points: number) => {
 const skipItem = () => {
   selectedItem.value = null
   selectedPoints.value = null
+  selectedSprintId.value = null
 }
 
 const submitEstimation = async () => {
-  if (!selectedItem.value || !selectedPoints.value) return
+  if (!selectedItem.value || !selectedPoints.value || !selectedSprintId.value) return
 
   try {
     await updateStoryPointsMutation.mutate({
       input: {
         id: selectedItem.value.id,
         story_points: selectedPoints.value,
-        org_id: selectedItem.value.org_id
+        org_id: selectedItem.value.org_id,
+        sprint: selectedSprintId.value
       }
     })
 
     toast({
       title: "Estimation Submitted",
-      description: `Successfully estimated "${selectedItem.value.title}" as ${selectedPoints.value} story points`,
+      description: `Successfully estimated "${selectedItem.value.title}" as ${selectedPoints.value} story points in selected sprint`,
       variant: "default",
     })
     
     // Reset selection and refetch work items
     selectedItem.value = null
     selectedPoints.value = null
+    selectedSprintId.value = null
     await refetchWorkItems()
   } catch (err: any) {
     console.error('Failed to submit estimation:', err)
@@ -192,12 +227,12 @@ const submitEstimation = async () => {
 }
 
 // Watch for query loading and error states
-watch([workItemsLoading], ([workItemsLoadingVal]) => {
-  loading.value = workItemsLoadingVal
+watch([workItemsLoading, sprintsLoading], ([workItemsLoadingVal, sprintsLoadingVal]) => {
+  loading.value = workItemsLoadingVal || sprintsLoadingVal
 })
 
-watch([workItemsError], ([workItemsErrorVal]) => {
-  error.value = workItemsErrorVal?.message || null
+watch([workItemsError, sprintsError], ([workItemsErrorVal, sprintsErrorVal]) => {
+  error.value = workItemsErrorVal?.message || sprintsErrorVal?.message || null
 })
 
 onMounted(() => {
