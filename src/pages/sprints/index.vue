@@ -94,7 +94,7 @@
           <div class="flex items-center gap-2">
             <Badge v-if="currentSprint.current" variant="outline" class="ml-2">Active Sprint</Badge>
             <Button 
-              v-if="!currentSprint.current && isSprintEnded(currentSprint.endDate)"
+              v-if="!currentSprint.current && isSprintEnded(currentSprint.endDate) && isLatestIteration"
               @click="initiateNewIteration"
               variant="outline"
               class="ml-2"
@@ -720,6 +720,17 @@ const handleSprintTitleChange = async (title: string) => {
     }
   }
 }
+
+// Add new computed property to check if current sprint is the latest iteration
+const isLatestIteration = computed(() => {
+  if (!selectedSprintTitle.value || !currentSprint.value) return false
+  
+  const sprints = groupedSprints.value.find(g => g.title === selectedSprintTitle.value)?.sprints || []
+  if (sprints.length === 0) return true // If it's the only iteration, it's the latest
+  
+  const latestSprint = sprints.sort((a, b) => parseInt(b.iteration) - parseInt(a.iteration))[0]
+  return latestSprint.id === currentSprint.value.id
+})
 
 // Update onMounted to set initial selections
 onMounted(async () => {
