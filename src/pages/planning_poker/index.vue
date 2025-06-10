@@ -68,28 +68,34 @@
           <!-- Sprint Selection -->
           <div class="mb-6">
             <h3 class="text-lg font-medium mb-3">Select Sprint</h3>
-            <Select v-model="selectedSprintId">
+            <Select v-model="selectedSprintTitle" :disabled="sprintsLoading">
               <SelectTrigger class="w-full">
                 <SelectValue placeholder="Select a sprint" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem 
-                  v-for="sprint in availableSprints" 
-                  :key="sprint.id" 
-                  :value="sprint.id"
-                  :class="{ 'font-semibold': sprint.current }"
+                  v-for="group in groupedSprints" 
+                  :key="group.title" 
+                  :value="group.title"
+                  :class="{ 'font-semibold': group.sprints.some(s => s.current) }"
                 >
-                  {{ sprint.title }}
-                  <span v-if="sprint.current" class="ml-2 text-xs text-blue-600">(Current)</span>
+                  {{ group.title }}
+                  <span v-if="group.sprints.some(s => s.current)" class="ml-2 text-xs text-blue-600">(Current)</span>
+                  <span class="ml-2 text-xs text-gray-500">(Iteration {{ group.sprints[group.sprints.length - 1].iteration }})</span>
                 </SelectItem>
               </SelectContent>
             </Select>
+            <p v-if="sprintsLoading" class="text-sm text-gray-500 mt-2">Loading sprints...</p>
+            <p v-if="sprintsError" class="text-sm text-red-500 mt-2">{{ sprintsError.message }}</p>
           </div>
 
           <!-- Action Buttons -->
           <div class="flex justify-end gap-3">
             <Button variant="outline" @click="skipItem">Skip</Button>
-            <Button @click="submitEstimation" :disabled="!selectedPoints || !selectedSprintId">
+            <Button 
+              @click="submitEstimation" 
+              :disabled="!selectedPoints || !selectedSprintTitle || !latestSprintId"
+            >
               Submit Estimation
             </Button>
           </div>
@@ -139,6 +145,13 @@ interface WorkItem {
   updatedAt: string
 }
 
+interface Sprint {
+  id: string
+  title: string
+  iteration: string
+  current: boolean
+}
+
 // Story points options (Fibonacci sequence)
 const storyPoints = [1, 2, 3, 5, 8, 13]
 
@@ -147,13 +160,13 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const selectedItem = ref<WorkItem | null>(null)
 const selectedPoints = ref<number | null>(null)
-const selectedSprintId = ref<string | null>(null)
+const selectedSprintTitle = ref<string | null>(null)
 
 // Get work items
 const { result: workItemsResult, loading: workItemsLoading, error: workItemsError, refetch: refetchWorkItems } = useQuery(GET_ACTIVE_USER_STORIES)
 
 // Get sprints
-const { result: sprintsResult, loading: sprintsLoading, error: sprintsError } = useQuery(GET_SPRINTS)
+const { result: sprintsResult, refetch: refetchSprints, loading: sprintsLoading, error: sprintsError } = useQuery(GET_SPRINTS)
 
 // Update story points mutation
 const updateStoryPointsMutation = useMutation(UPDATE_WORK_ITEM_STORY_POINTS)
@@ -174,6 +187,38 @@ const availableSprints = computed(() => {
   return sprintsResult.value.getSprints
 })
 
+// Add new computed property for grouped sprints
+const groupedSprints = computed(() => {
+  if (!sprintsResult.value?.getSprints) return []
+  
+  // Group sprints by title
+  const groups = sprintsResult.value.getSprints.reduce((acc: { [key: string]: Sprint[] }, sprint: Sprint) => {
+    if (!acc[sprint.title]) {
+      acc[sprint.title] = []
+    }
+    acc[sprint.title].push(sprint)
+    return acc
+  }, {})
+
+  // Convert to array and sort by iteration
+  return Object.entries(groups).map(([title, sprints]) => ({
+    title,
+    sprints: sprints.sort((a, b) => parseInt(a.iteration) - parseInt(b.iteration))
+  }))
+})
+
+// Add computed property to get latest sprint ID for selected title
+const latestSprintId = computed(() => {
+  if (!selectedSprintTitle.value) return null
+  
+  const group = groupedSprints.value.find(g => g.title === selectedSprintTitle.value)
+  if (!group || group.sprints.length === 0) return null
+  
+  // Get the latest iteration
+  const latestSprint = group.sprints.sort((a, b) => parseInt(b.iteration) - parseInt(a.iteration))[0]
+  return latestSprint.id
+})
+
 // Methods
 const selectItem = (item: WorkItem) => {
   selectedItem.value = item
@@ -187,11 +232,11 @@ const selectPoints = (points: number) => {
 const skipItem = () => {
   selectedItem.value = null
   selectedPoints.value = null
-  selectedSprintId.value = null
+  selectedSprintTitle.value = null
 }
 
 const submitEstimation = async () => {
-  if (!selectedItem.value || !selectedPoints.value || !selectedSprintId.value) return
+  if (!selectedItem.value || !selectedPoints.value || !selectedSprintTitle.value) return
 
   try {
     await updateStoryPointsMutation.mutate({
@@ -199,20 +244,20 @@ const submitEstimation = async () => {
         id: selectedItem.value.id,
         story_points: selectedPoints.value,
         org_id: selectedItem.value.org_id,
-        sprint: selectedSprintId.value
+        sprint: latestSprintId.value
       }
     })
 
     toast({
       title: "Estimation Submitted",
-      description: `Successfully estimated "${selectedItem.value.title}" as ${selectedPoints.value} story points in selected sprint`,
+      description: `Successfully estimated "${selectedItem.value.title}" as ${selectedPoints.value} story points in ${selectedSprintTitle.value}`,
       variant: "default",
     })
     
     // Reset selection and refetch work items
     selectedItem.value = null
     selectedPoints.value = null
-    selectedSprintId.value = null
+    selectedSprintTitle.value = null
     await refetchWorkItems()
   } catch (err: any) {
     console.error('Failed to submit estimation:', err)
@@ -235,8 +280,18 @@ watch([workItemsError, sprintsError], ([workItemsErrorVal, sprintsErrorVal]) => 
   error.value = workItemsErrorVal?.message || sprintsErrorVal?.message || null
 })
 
-onMounted(() => {
-  // Initial setup if needed
+onMounted(async () => {
+  try {
+    await refetchWorkItems()
+    if (sprintsResult.value?.getSprints?.length > 0) {
+      // Find current sprint or use first sprint
+      const currentSprint = sprintsResult.value.getSprints.find((sprint: Sprint) => sprint.current === true) || sprintsResult.value.getSprints[0]
+      selectedSprintTitle.value = currentSprint.title
+    }
+  } catch (err: any) {
+    console.error('Failed to initialize:', err)
+    error.value = err?.message || 'Failed to initialize planning poker'
+  }
 })
 </script>
 
