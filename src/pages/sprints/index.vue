@@ -25,18 +25,18 @@
       <div class="flex flex-col gap-4">
         <div class="flex justify-between items-center">
           <div class="flex items-center gap-4">
-            <!-- Sprint Selection Dropdown -->
-            <Select v-model="selectedSprintId" @update:modelValue="handleSprintChange">
+            <!-- Sprint Title Selection Dropdown -->
+            <Select v-model="selectedSprintTitle" @update:modelValue="handleSprintTitleChange">
               <SelectTrigger class="w-[200px]">
                 <SelectValue placeholder="Select Sprint" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem v-for="sprint in sprintsResult?.getSprints" 
-                           :key="sprint.id" 
-                           :value="sprint.id"
-                           :class="{ 'font-semibold': sprint.current }">
-                  {{ sprint.title }}
-                  <span v-if="sprint.current" class="ml-2 text-xs text-blue-600">(Current)</span>
+                <SelectItem v-for="group in groupedSprints" 
+                           :key="group.title" 
+                           :value="group.title"
+                           :class="{ 'font-semibold': group.sprints.some(s => s.current) }">
+                  {{ group.title }}
+                  <span v-if="group.sprints.some(s => s.current)" class="ml-2 text-xs text-blue-600">(Current)</span>
                 </SelectItem>
                 <SelectSeparator />
                 <div 
@@ -55,9 +55,9 @@
               </SelectContent>
             </Select>
 
-            <!-- Iteration Selection Dropdown - Only show if multiple iterations exist -->
+            <!-- Iteration Selection Dropdown -->
             <Select 
-              v-if="iterations.length > 1"
+              v-if="selectedSprintTitle && groupedSprints.find(g => g.title === selectedSprintTitle)?.sprints.length > 1"
               v-model="selectedIteration" 
               @update:modelValue="handleIterationChange"
             >
@@ -65,12 +65,12 @@
                 <SelectValue placeholder="Select Iteration" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem v-for="iter in iterations" 
-                           :key="iter.id" 
-                           :value="iter.id"
-                           :class="{ 'font-semibold': iter.id === currentSprint?.id }">
-                  Iteration {{ iter.iteration }}
-                  <span v-if="iter.id === currentSprint?.id" class="ml-2 text-xs text-blue-600">(Current)</span>
+                <SelectItem v-for="sprint in groupedSprints.find(g => g.title === selectedSprintTitle)?.sprints" 
+                           :key="sprint.id" 
+                           :value="sprint.id"
+                           :class="{ 'font-semibold': sprint.current }">
+                  Iteration {{ sprint.iteration }}
+                  <span v-if="sprint.current" class="ml-2 text-xs text-blue-600">(Current)</span>
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -333,7 +333,7 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const isSprintModalOpen = ref(false)
 const creatingSprintLoading = ref(false)
-const selectedSprintId = ref<string>('')
+const selectedSprintTitle = ref<string>('')
 const selectedIteration = ref<string>('')
 const iterations = ref<{ id: string; iteration: string }[]>([])
 
@@ -347,10 +347,10 @@ const sprintForm = ref<SprintForm>({
 const { result: userStoriesResult, loading: userStoriesLoading, error: userStoriesError, refetch: refetchUserStories } = useQuery(
   GET_SPRINT_USER_STORIES,
   () => ({
-    sprintId: selectedSprintId.value
+    sprintId: selectedIteration.value
   }),
   () => ({
-    enabled: !!selectedSprintId.value
+    enabled: !!selectedIteration.value
   })
 )
 
@@ -373,21 +373,47 @@ const formatDate = (dateString: string) => {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-// Update currentSprint computed to use selectedSprintId
+// Add new computed properties for grouped sprints
+const groupedSprints = computed(() => {
+  if (!sprintsResult.value?.getSprints) return []
+  
+  // Group sprints by title
+  const groups = sprintsResult.value.getSprints.reduce((acc: { [key: string]: Sprint[] }, sprint: Sprint) => {
+    if (!acc[sprint.title]) {
+      acc[sprint.title] = []
+    }
+    acc[sprint.title].push(sprint)
+    return acc
+  }, {})
+
+  // Convert to array and sort by iteration
+  return Object.entries(groups).map(([title, sprints]) => ({
+    title,
+    sprints: sprints.sort((a, b) => parseInt(a.iteration) - parseInt(b.iteration))
+  }))
+})
+
+// Update currentSprint computed to use selectedIteration
 const currentSprint = computed(() => {
-  if (!sprintsResult.value?.getSprints || sprintsResult.value.getSprints.length === 0) return null;
+  if (!sprintsResult.value?.getSprints || sprintsResult.value.getSprints.length === 0) return null
   
-  const sprints = sprintsResult.value.getSprints;
+  // If an iteration is selected, return that sprint
+  if (selectedIteration.value) {
+    const sprint = sprintsResult.value.getSprints.find((s: Sprint) => s.id === selectedIteration.value)
+    if (sprint) return sprint
+  }
   
-  // If a sprint is selected, return that sprint
-  if (selectedSprintId.value) {
-    const selectedSprint = sprints.find((sprint: Sprint) => sprint.id === selectedSprintId.value);
-    if (selectedSprint) return selectedSprint;
+  // If a sprint title is selected but no iteration, return the latest iteration
+  if (selectedSprintTitle.value) {
+    const sprints = sprintsResult.value.getSprints.filter((s: Sprint) => s.title === selectedSprintTitle.value)
+    if (sprints.length > 0) {
+      return sprints.sort((a, b) => parseInt(b.iteration) - parseInt(a.iteration))[0]
+    }
   }
   
   // Otherwise, find sprint with current=true, or just return the first one if none marked as current
-  const currentSprint = sprints.find((sprint: Sprint) => sprint.current === true);
-  return currentSprint || sprints[0];
+  const currentSprint = sprintsResult.value.getSprints.find((sprint: Sprint) => sprint.current === true)
+  return currentSprint || sprintsResult.value.getSprints[0]
 })
 
 // Update computed property to get user stories
@@ -681,35 +707,31 @@ const initiateNewIteration = async () => {
   }
 }
 
-// Update handleSprintChange to populate iterations
-const handleSprintChange = async (sprintId: string) => {
-  selectedSprintId.value = sprintId
-  if (sprintId && sprintsResult.value?.getSprints) {
-    // Find all iterations of the selected sprint
-    const selectedSprint = sprintsResult.value.getSprints.find((s: Sprint) => s.id === sprintId)
-    if (selectedSprint) {
-      iterations.value = sprintsResult.value.getSprints
-        .filter((s: Sprint) => s.title === selectedSprint.title)
-        .sort((a: Sprint, b: Sprint) => parseInt(a.iteration) - parseInt(b.iteration))
-        .map((s: Sprint) => ({ id: s.id, iteration: s.iteration }))
-      
-      // Set the current iteration as selected
-      selectedIteration.value = sprintId
+// Update handleSprintTitleChange to populate iterations
+const handleSprintTitleChange = async (title: string) => {
+  selectedSprintTitle.value = title
+  if (title) {
+    // Find the latest iteration for this sprint title
+    const sprints = sprintsResult.value?.getSprints.filter((s: Sprint) => s.title === title) || []
+    if (sprints.length > 0) {
+      const latestSprint = sprints.sort((a, b) => parseInt(b.iteration) - parseInt(a.iteration))[0]
+      selectedIteration.value = latestSprint.id
+      await refetchUserStories()
     }
-    await refetchUserStories()
   }
 }
 
-// Update onMounted to set initial selected sprint
+// Update onMounted to set initial selections
 onMounted(async () => {
   try {
     await refetchSprints()
-    // Set initial selected sprint to current sprint or first sprint
     if (sprintsResult.value?.getSprints?.length > 0) {
-      const currentSprint = sprintsResult.value.getSprints.find((sprint: Sprint) => sprint.current === true);
-      selectedSprintId.value = currentSprint?.id || sprintsResult.value.getSprints[0].id;
-      if (selectedSprintId.value) {
-        await refetchUserStories();
+      // Find current sprint or use first sprint
+      const currentSprint = sprintsResult.value.getSprints.find((sprint: Sprint) => sprint.current === true) || sprintsResult.value.getSprints[0]
+      selectedSprintTitle.value = currentSprint.title
+      selectedIteration.value = currentSprint.id
+      if (selectedIteration.value) {
+        await refetchUserStories()
       }
     }
   } catch (err: any) {
