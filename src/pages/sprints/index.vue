@@ -22,54 +22,86 @@
 
     <!-- Sprint Info Banner -->
     <div v-else class="p-4 bg-blue-50 rounded-lg border border-blue-200 mb-6">
-      <div class="flex justify-between items-center">
-        <div class="flex items-center gap-4">
-          <Select v-model="selectedSprintId" @update:modelValue="handleSprintChange">
-            <SelectTrigger class="w-[200px]">
-              <SelectValue placeholder="Select Sprint" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="sprint in sprintsResult?.getSprints" 
-                         :key="sprint.id" 
-                         :value="sprint.id"
-                         :class="{ 'font-semibold': sprint.current }">
-                {{ sprint.title }}
-                <span v-if="sprint.current" class="ml-2 text-xs text-blue-600">(Current)</span>
-              </SelectItem>
-              <SelectSeparator />
-              <div 
-                class="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none text-blue-600 hover:bg-accent hover:text-blue-700 focus:bg-accent focus:text-blue-700"
-                @click="(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openSprintModal();
-                }"
-              >
-                <div class="flex items-center">
-                  <Plus class="h-4 w-4 mr-2" />
-                  Create New Sprint
+      <div class="flex flex-col gap-4">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-4">
+            <!-- Sprint Selection Dropdown -->
+            <Select v-model="selectedSprintId" @update:modelValue="handleSprintChange">
+              <SelectTrigger class="w-[200px]">
+                <SelectValue placeholder="Select Sprint" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="sprint in sprintsResult?.getSprints" 
+                           :key="sprint.id" 
+                           :value="sprint.id"
+                           :class="{ 'font-semibold': sprint.current }">
+                  {{ sprint.title }}
+                  <span v-if="sprint.current" class="ml-2 text-xs text-blue-600">(Current)</span>
+                </SelectItem>
+                <SelectSeparator />
+                <div 
+                  class="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none text-blue-600 hover:bg-accent hover:text-blue-700 focus:bg-accent focus:text-blue-700"
+                  @click="(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openSprintModal();
+                  }"
+                >
+                  <div class="flex items-center">
+                    <Plus class="h-4 w-4 mr-2" />
+                    Create New Sprint
+                  </div>
                 </div>
-              </div>
-            </SelectContent>
-          </Select>
-          <div>
-            <h2 class="text-xl font-semibold">{{ currentSprint.title }}</h2>
-            <p class="text-gray-600 mt-1">{{ currentSprint.description }}</p>
-            <div class="flex mt-2 text-sm text-gray-500 space-x-4">
-              <div>
-                <span class="font-medium">Start:</span> {{ formatDate(currentSprint.startDate) }}
-              </div>
-              <div>
-                <span class="font-medium">End:</span> {{ formatDate(currentSprint.endDate) }}
-              </div>
-              <div>
-                <span class="font-medium">Iteration:</span> {{ currentSprint.iteration }}
+              </SelectContent>
+            </Select>
+
+            <!-- Iteration Selection Dropdown - Only show if multiple iterations exist -->
+            <Select 
+              v-if="iterations.length > 1"
+              v-model="selectedIteration" 
+              @update:modelValue="handleIterationChange"
+            >
+              <SelectTrigger class="w-[150px]">
+                <SelectValue placeholder="Select Iteration" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="iter in iterations" 
+                           :key="iter.id" 
+                           :value="iter.id"
+                           :class="{ 'font-semibold': iter.id === currentSprint?.id }">
+                  Iteration {{ iter.iteration }}
+                  <span v-if="iter.id === currentSprint?.id" class="ml-2 text-xs text-blue-600">(Current)</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <div>
+              <h2 class="text-xl font-semibold">{{ currentSprint.title }}</h2>
+              <p class="text-gray-600 mt-1">{{ currentSprint.description }}</p>
+              <div class="flex mt-2 text-sm text-gray-500 space-x-4">
+                <div>
+                  <span class="font-medium">Start:</span> {{ formatDate(currentSprint.startDate) }}
+                </div>
+                <div>
+                  <span class="font-medium">End:</span> {{ formatDate(currentSprint.endDate) }}
+                </div>
+                <div>
+                  <span class="font-medium">Iteration:</span> {{ currentSprint.iteration }}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <div>
-          <Badge v-if="currentSprint.current" variant="outline" class="ml-2">Active Sprint</Badge>
+          <div class="flex items-center gap-2">
+            <Badge v-if="currentSprint.current" variant="outline" class="ml-2">Active Sprint</Badge>
+            <Button 
+              v-if="!currentSprint.current && isSprintEnded(currentSprint.endDate)"
+              @click="initiateNewIteration"
+              variant="outline"
+              class="ml-2"
+            >
+              Initiate New Iteration
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -199,7 +231,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useQuery, useMutation } from '@vue/apollo-composable'
 import { GET_SPRINT_USER_STORIES, GET_SPRINTS } from '@/graphql/queries'
-import { UPDATE_WORK_ITEM_STATE, CREATE_SPRINT } from '@/graphql/mutations'
+import { UPDATE_WORK_ITEM_STATE, CREATE_SPRINT, CREATE_SPRINT_ITERATION } from '@/graphql/mutations'
 import draggable from 'vuedraggable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -302,6 +334,8 @@ const error = ref<string | null>(null)
 const isSprintModalOpen = ref(false)
 const creatingSprintLoading = ref(false)
 const selectedSprintId = ref<string>('')
+const selectedIteration = ref<string>('')
+const iterations = ref<{ id: string; iteration: string }[]>([])
 
 const sprintForm = ref<SprintForm>({
   title: '',
@@ -328,6 +362,9 @@ const updateWorkItemStateMutation = useMutation(UPDATE_WORK_ITEM_STATE)
 
 // Create sprint mutation
 const createSprintMutation = useMutation(CREATE_SPRINT)
+
+// Create sprint iteration mutation
+const createSprintIterationMutation = useMutation(CREATE_SPRINT_ITERATION)
 
 // Format date helper function
 const formatDate = (dateString: string) => {
@@ -600,11 +637,66 @@ const createSprint = async () => {
   }
 }
 
-// Add handler for sprint change
+// Add new methods
+const isSprintEnded = (endDate: string) => {
+  return new Date(endDate) < new Date()
+}
+
+const handleIterationChange = async (iterationId: string) => {
+  selectedIteration.value = iterationId
+  if (iterationId) {
+    await refetchUserStories()
+  }
+}
+
+const initiateNewIteration = async () => {
+  if (!currentSprint.value) return
+
+  try {
+    const result = await createSprintIterationMutation.mutate({
+      input: {
+        title: currentSprint.value.title,
+        description: currentSprint.value.description,
+        duration: Math.ceil((new Date(currentSprint.value.endDate).getTime() - new Date(currentSprint.value.startDate).getTime()) / (1000 * 60 * 60 * 24)),
+        previousSprintId: currentSprint.value.id
+      }
+    })
+
+    toast({
+      title: "New Iteration Created",
+      description: `Successfully created new iteration for "${currentSprint.value.title}"`,
+      variant: "default",
+    })
+
+    await refetchSprints()
+  } catch (err: any) {
+    console.error('Failed to create new iteration:', err)
+    error.value = err?.message || 'Failed to create new iteration'
+    
+    toast({
+      title: "Error",
+      description: err?.message || 'Failed to create new iteration',
+      variant: "destructive",
+    })
+  }
+}
+
+// Update handleSprintChange to populate iterations
 const handleSprintChange = async (sprintId: string) => {
-  selectedSprintId.value = sprintId;
-  if (sprintId) {
-    await refetchUserStories();
+  selectedSprintId.value = sprintId
+  if (sprintId && sprintsResult.value?.getSprints) {
+    // Find all iterations of the selected sprint
+    const selectedSprint = sprintsResult.value.getSprints.find((s: Sprint) => s.id === sprintId)
+    if (selectedSprint) {
+      iterations.value = sprintsResult.value.getSprints
+        .filter((s: Sprint) => s.title === selectedSprint.title)
+        .sort((a: Sprint, b: Sprint) => parseInt(a.iteration) - parseInt(b.iteration))
+        .map((s: Sprint) => ({ id: s.id, iteration: s.iteration }))
+      
+      // Set the current iteration as selected
+      selectedIteration.value = sprintId
+    }
+    await refetchUserStories()
   }
 }
 
