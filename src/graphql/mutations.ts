@@ -157,3 +157,14 @@ export const UPDATE_WORK_ITEM_STORY_POINTS = gql`
     }
   }
 `;
+
+export const UPDATE_WORK_ITEM_ESTIMATES = gql`
+  mutation UpdateWorkItemEstimates($input: UpdateWorkItemEstimatesInput!) {
+    updateWorkItemEstimates(input: $input) {
+      id
+      completed_estimate
+      remaining_estimate
+      original_estimate
+    }
+  }
+`;

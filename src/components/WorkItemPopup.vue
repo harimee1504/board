@@ -73,7 +73,31 @@
           </div>
           <div class="space-y-2">
             <label class="font-semibold">Completed Estimate</label>
-            <p>{{ workItem?.completed_estimate }}</p>
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center gap-2">
+                <Input 
+                  v-model="completedEstimate" 
+                  type="number" 
+                  min="0"
+                  step="0.5"
+                  class="w-24"
+                  :class="{ 'border-red-500': estimateError }"
+                  :disabled="updateEstimateLoading"
+                  @change="handleCompletedEstimateChange"
+                />
+                <Button 
+                  v-if="completedEstimate !== workItem?.completed_estimate"
+                  size="sm"
+                  variant="outline"
+                  :disabled="updateEstimateLoading || !!estimateError"
+                  @click="handleCompletedEstimateChange"
+                >
+                  <Loader2Icon v-if="updateEstimateLoading" class="mr-2 h-4 w-4 animate-spin" />
+                  Update
+                </Button>
+              </div>
+              <p v-if="estimateError" class="text-sm text-red-500">{{ estimateError }}</p>
+            </div>
           </div>
         </div>
 
@@ -175,12 +199,15 @@ import { PencilIcon } from 'lucide-vue-next'
 import { WorkItemTypeDisplay, StateDisplay, PriorityDisplay, State } from '@/typings/enums'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useMutation, useQuery } from '@vue/apollo-composable'
-import { UPDATE_WORK_ITEM, UPDATE_WORK_ITEM_STATE } from '@/graphql/mutations'
+import { UPDATE_WORK_ITEM, UPDATE_WORK_ITEM_STATE, UPDATE_WORK_ITEM_ESTIMATES } from '@/graphql/mutations'
 import { GET_TAGS } from '@/graphql/queries'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Check, ChevronsUpDown } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
+import { Input } from '@/components/ui/input'
+import { Loader2Icon } from 'lucide-vue-next'
+import { useToast } from '@/components/ui/toast/use-toast'
 
 const props = defineProps<{
   isOpen: boolean
@@ -197,6 +224,7 @@ const domain = window.location.origin
 // Add Apollo mutations
 const { mutate: updateWorkItem, loading: updateLoading } = useMutation(UPDATE_WORK_ITEM)
 const { mutate: updateWorkItemState, loading: updateStateLoading } = useMutation(UPDATE_WORK_ITEM_STATE)
+const { mutate: updateWorkItemEstimates, loading: updateEstimateLoading } = useMutation(UPDATE_WORK_ITEM_ESTIMATES)
 
 // Add tag selection functionality
 const { result: tagsResult } = useQuery(GET_TAGS)
@@ -276,6 +304,102 @@ const close = () => {
 const handleEdit = () => {
   if (props.workItem?.u_id) {
     router.push(`/work-items/${props.workItem.u_id}/edit`)
+  }
+}
+
+const { toast } = useToast()
+const completedEstimate = ref<number | undefined>(props.workItem?.completed_estimate)
+const estimateError = ref<string>('')
+
+// Watch for workItem changes to update completedEstimate
+watch(() => props.workItem, (newWorkItem) => {
+  if (newWorkItem) {
+    completedEstimate.value = newWorkItem.completed_estimate
+    validateEstimate(newWorkItem.completed_estimate, newWorkItem.original_estimate)
+  }
+}, { immediate: true })
+
+// Validate completed estimate
+const validateEstimate = (completed: number | undefined, original: number | undefined) => {
+  if (completed === undefined || original === undefined) {
+    estimateError.value = ''
+    return true
+  }
+  
+  if (completed < 0) {
+    estimateError.value = 'Completed estimate cannot be negative'
+    return false
+  }
+  
+  if (completed > original) {
+    estimateError.value = 'Completed estimate cannot exceed original estimate'
+    return false
+  }
+  
+  estimateError.value = ''
+  return true
+}
+
+// Watch for changes to completed estimate to validate
+watch(completedEstimate, (newValue) => {
+  validateEstimate(newValue, props.workItem?.original_estimate)
+})
+
+const handleCompletedEstimateChange = async () => {
+  if (!props.workItem?.id || !props.workItem?.org_id) {
+    console.error('Missing required fields:', { id: props.workItem?.id, org_id: props.workItem?.org_id })
+    return
+  }
+
+  // Validate before sending to server
+  if (!validateEstimate(completedEstimate.value, props.workItem.original_estimate)) {
+    toast({
+      title: "Validation Error",
+      description: estimateError.value,
+      variant: "destructive",
+      duration: 3000
+    })
+    return
+  }
+
+  try {
+    updateEstimateLoading.value = true
+    
+    const result = await updateWorkItemEstimates({
+      input: {
+        id: props.workItem.id,
+        completed_estimate: completedEstimate.value || 0,
+        org_id: props.workItem.org_id
+      }
+    })
+    
+    console.log('Estimate update result:', result)
+    
+    // Update local state
+    if (props.workItem && result?.data?.updateWorkItemEstimates) {
+      const updated = result.data.updateWorkItemEstimates
+      props.workItem.completed_estimate = updated.completed_estimate
+      props.workItem.remaining_estimate = updated.remaining_estimate
+    }
+
+    toast({
+      title: "Success",
+      description: "Work item estimates updated successfully",
+      duration: 3000
+    })
+  } catch (error) {
+    console.error('Failed to update work item estimates:', error)
+    // Revert the completed estimate on error
+    completedEstimate.value = props.workItem.completed_estimate
+    
+    toast({
+      title: "Error",
+      description: "Failed to update work item estimates",
+      variant: "destructive",
+      duration: 3000
+    })
+  } finally {
+    updateEstimateLoading.value = false
   }
 }
 </script> 
