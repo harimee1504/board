@@ -54,8 +54,6 @@ export default defineConfig({
     }
   },
   plugins: [
-    vue(),
-    react(),
     federation({
       name: 'board',
       filename: 'remoteEntry.js',
@@ -64,7 +62,9 @@ export default defineConfig({
       },
       shared: ['react', 'react-dom'],
     }),
-    // injectRemoteStylesheet()
+    react(),
+    vue(),
+    injectRemoteStylesheet()
   ],
   build: {
     modulePreload: false,
