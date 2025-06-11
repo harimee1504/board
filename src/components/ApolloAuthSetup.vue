@@ -6,7 +6,7 @@ import { createHttpLink } from "@apollo/client/core";
 import apolloClient from '../graphql/apollo-client';
 
 const httpLink = createHttpLink({
-  uri: "http://localhost:5001/graphql",
+  uri: "https://boardserver.pythonanywhere.com/graphql",
   credentials: "include",
   fetchOptions: {
     mode: "cors",
