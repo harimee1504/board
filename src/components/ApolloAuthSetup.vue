@@ -6,7 +6,7 @@ import { createHttpLink } from "@apollo/client/core";
 import apolloClient from '../graphql/apollo-client';
 
 const httpLink = createHttpLink({
-  uri: "https://large-cameras-cough.loca.lt",
+  uri: "https://55ae-2409-40f4-1120-8c84-14b5-b21c-6fb2-7342.ngrok-free.app/graphql",
   credentials: "include",
   fetchOptions: {
     mode: "cors",
